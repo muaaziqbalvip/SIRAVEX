@@ -6,6 +6,7 @@ import { parseXmltv } from '@/services/epg/xmltv';
 import { connectXtream, fetchSeriesEpisodes, fetchShortEpg, fetchXtreamEpg, type XtreamCreds } from '@/services/xtream/xtream';
 import * as db from '@/services/storage/db';
 import { downloadJson, redactUrl, sanitizeUrl, validatePlaylistFile } from '@/lib/security';
+import { applyFavouriteOrder, nextSortOrder } from '@/lib/favourites-order';
 
 const SETTINGS_KEY = 'siravex-settings-v1';
 export interface Toast { id: number; title: string; body?: string; tone: 'success' | 'error' | 'info' }
@@ -32,6 +33,7 @@ interface Store {
   deletePlaylist: (id: string) => Promise<void>;
   refreshPlaylist: (id: string) => Promise<void>;
   toggleFavourite: (itemId: string) => Promise<void>;
+  reorderFavourites: (orderedItemIds: string[]) => Promise<void>;
   isFavourite: (itemId: string) => boolean;
   saveProgress: (itemId: string, position: number, duration: number) => void;
   removeProgress: (itemId: string) => Promise<void>;
@@ -265,10 +267,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setFavourites((p) => p.filter((f) => f.itemId !== itemId));
       try { await db.deleteFavourite(`fav:${itemId}`); } catch { /* ignore */ }
     } else {
-      const fav: Favourite = { id: `fav:${itemId}`, itemId, createdAt: Date.now() };
+      const fav: Favourite = { id: `fav:${itemId}`, itemId, createdAt: Date.now(), sortOrder: nextSortOrder(favourites) };
       setFavourites((p) => [...p, fav]);
       try { await db.putFavourite(fav); } catch { /* ignore */ }
     }
+  }, [favourites]);
+
+  const reorderFavourites = useCallback(async (orderedItemIds: string[]) => {
+    const next = applyFavouriteOrder(favourites, orderedItemIds);
+    setFavourites(next);
+    try { await Promise.all(next.map((f) => db.putFavourite(f))); } catch { /* ignore */ }
   }, [favourites]);
 
   /**
@@ -303,8 +311,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics,
     toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg,
     renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist,
-    toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings,
-  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
+    toggleFavourite, reorderFavourites, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings,
+  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, reorderFavourites, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

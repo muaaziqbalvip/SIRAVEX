@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BookOpen, CalendarDays, CircleHelp, Film, Heart, History, Home, LayoutGrid, ListVideo, LogIn, MonitorPlay, Newspaper, Radio, Search, Settings, ShieldCheck, Stethoscope, Tv, X } from 'lucide-react';
 import { Button, Logo } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
@@ -31,6 +31,7 @@ function linkCls({ isActive }: { isActive: boolean }): string {
 }
 
 export function AppShell() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { playlists, items, toasts, dismissToast, settings, toast } = useStore();
   const { user, isAdmin } = useAuth();
@@ -95,7 +96,7 @@ export function AppShell() {
           {swUpdate && <div className="flex flex-wrap items-center justify-center gap-2 bg-violet-950/70 px-4 py-2 text-sm"><span>A new version of SIRAVEX is ready.</span><Button onClick={() => window.dispatchEvent(new Event('siravex-sw-update-accepted'))}>Refresh to update</Button></div>}
           {announcement && <div className="flex items-center gap-2 bg-emerald-950/80 px-3 py-2 text-xs sm:justify-center sm:text-sm" role="region" aria-label="Announcement"><span className="min-w-0 flex-1 sm:flex-none"><strong>{announcement.title}</strong>{announcement.body ? <span className="text-silver/85"> — {announcement.body}</span> : null}</span><button type="button" aria-label="Dismiss announcement" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10" onClick={() => { setAnnouncement(null); try { sessionStorage.setItem('siravex-ann-dismissed', `${announcement.title}|${announcement.version ?? ''}`); } catch { /* ignore */ } }}>✕</button></div>}
         </header>
-        <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}><Outlet /></main>
+        <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}><div key={location.pathname} className="svx-page"><Outlet /></div></main>
       </div>
 
       {/* Mobile bottom nav: 4 primaries + More sheet (pehle More seedha Settings jata tha — saari screens wahan chhupi thin) */}

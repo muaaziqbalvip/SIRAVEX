@@ -48,7 +48,7 @@ export async function startAnalytics(): Promise<void> {
   try {
     const { getAnalytics, isSupported, logEvent } = await import('firebase/analytics');
     const { app } = await getFirebase();
-    if (await isSupported()) logEvent(getAnalytics(app), 'app_open', { version: '3.2.0' });
+    if (await isSupported()) logEvent(getAnalytics(app), 'app_open', { version: '3.3.0' });
   } catch { /* analytics optional hai */ }
 }
 

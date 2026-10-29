@@ -76,6 +76,7 @@ export interface AppSettings {
   defaultHome: string;
   librarySort: 'title' | 'recent' | 'group';
   liveLayout: 'list' | 'grid';
+  showAds: boolean;
   saveRecentSearches: boolean;
 }
 
@@ -83,7 +84,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark', accent: 'sky', density: 'comfortable', reducedMotion: false,
   autoplay: false, resumePlayback: true, defaultVolume: 0.8, playbackSpeed: 1,
   audioLanguage: '', subtitleLanguage: '', subtitleSize: 'medium', subtitleColor: '#ffffff',
-  defaultHome: '/', librarySort: 'title', liveLayout: 'list', saveRecentSearches: true,
+  defaultHome: '/', librarySort: 'title', liveLayout: 'list', saveRecentSearches: true, showAds: true,
 };
 
 export interface ParseReport { total: number; imported: number; warnings: string[]; errors: string[] }

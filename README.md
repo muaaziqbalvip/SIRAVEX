@@ -8,9 +8,9 @@
 
 **Live TV · Movies · Series · EPG Guide · Xtream Codes · Play Any Stream**
 
-[![Version](https://img.shields.io/badge/version-3.3.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
+[![Version](https://img.shields.io/badge/version-3.4.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
 [![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#-testing--qa)
-[![Tests](https://img.shields.io/badge/tests-69%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
+[![Tests](https://img.shields.io/badge/tests-75%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#-install-pwa)
@@ -33,6 +33,14 @@ SIRAVEX is an **installable PWA** for playing **your own authorized** IPTV and m
 > 🔒 **Privacy first:** everything lives in your browser (IndexedDB). Diagnostics and exports show **hosts only** — never full private URLs, tokens, or passwords.
 
 ---
+
+## 🛍️ v3.4 “Mizanora” — Ads API integration
+
+SIRAVEX is now a client of the **Mizanora Ads API** (the ad platform already running on mizanora.vercel.app — API keys, auto-optimise engine, HMAC-signed impression/click stats):
+
+- **Home + player banners** via the official `embed.js` (`data-mz-ads` slots), plus **video pre-roll** before playback — frequency-capped (once per session, ≥30 min apart), 5s skip, and it dismisses itself within 3s if no video ad is available, so ads can never block a stream.
+- Until campaigns are activated in the Mizanora admin, slots fall back to bundled first-party Mizanora house promos (real offers, real links) so placements never look empty — real API ads replace them automatically.
+- Settings → "Mizanora ads" turns everything off; dismiss snoozes banners for 24h. No third-party ad network, no extra user tracking in SIRAVEX: stats are credited server-side by signed tokens.
 
 ## 👑 v3.3 “Prime” — recorder, reorder & speed
 
@@ -115,7 +123,7 @@ Rules the player follows: **nothing is faked.** If a source sends one rendition 
 ```bash
 npm install        # deps
 npm run dev        # http://localhost:5173
-npm test           # 69 tests
+npm test           # 75 tests
 npm run typecheck  # strict TypeScript
 npm run build      # production build → dist/
 ```
@@ -192,7 +200,7 @@ Full QA history, audits and honest limitations: [`docs/QA-REPORT.md`](docs/QA-RE
 
 ## 🧪 Testing & QA
 
-`npm test` — **69 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
+`npm test` — **75 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
 
 ## 📄 License
 

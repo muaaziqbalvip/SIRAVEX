@@ -4,12 +4,14 @@ import { CalendarClock, Heart, ListVideo, Play, Star } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
+import { MzAdSlot, MzPreroll, usePrerollGate } from '@/components/ads/MzAdSlot';
 import { MediaCard, SafeImage } from '@/components/media/MediaCard';
 import { cleanTitle } from '@/lib/display';
 
 export function PlayerPage() {
   const { id } = useParams();
   const { ready, items, playlists, programmes, toggleFavourite, isFavourite, progress, settings, loadSeriesEpisodes, loadShortEpg, toast } = useStore();
+  const preroll = usePrerollGate();
   const [epPass, setEpPass] = useState('');
   const [epBusy, setEpBusy] = useState(false);
   const [sgPass, setSgPass] = useState('');
@@ -46,7 +48,8 @@ export function PlayerPage() {
             <Button className="mt-3" disabled={epBusy} onClick={async () => { setEpBusy(true); try { const n = await loadSeriesEpisodes(item, epPass || undefined); toast({ tone: 'success', title: `${n} episodes loaded`, body: 'Ab koi episode select kar ke Play karein.' }); } catch (e) { toast({ tone: 'error', title: 'Episodes load nahi hue', body: e instanceof Error ? e.message : 'Failed' }); } finally { setEpBusy(false); } }}><ListVideo size={17} aria-hidden />{epBusy ? 'Loading episodes…' : 'Load episodes'}</Button>
           </div>
         </Card>
-      ) : <PlayerShell item={item} />}
+      ) : preroll.show ? <MzPreroll onDone={preroll.dismiss} /> : <PlayerShell item={item} />}
+      {!isPlaceholder && <MzAdSlot slot="banner" placement="player" className="mt-4" />}
       <div className="mt-5 flex flex-wrap items-start gap-3">
         <div className="min-w-[220px] flex-1"><h1 className="text-xl font-extrabold sm:text-2xl">{item.title}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted"><span>{[item.group, item.year, item.durationLabel, item.genre].filter(Boolean).join(' · ') || item.kind}</span>{item.rating ? <span className="inline-flex items-center gap-1 font-bold text-amber-300"><Star size={13} aria-hidden />{item.rating.toFixed(1)}</span> : null}</p>

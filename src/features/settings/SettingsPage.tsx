@@ -24,6 +24,7 @@ export function SettingsPage() {
         <Row label="Live TV layout"><Select value={settings.liveLayout} onChange={(e) => updateSettings({ liveLayout: e.target.value as typeof settings.liveLayout })} aria-label="Live TV layout"><option value="list">List</option><option value="grid">Grid</option></Select></Row>
       </Section>
       <Section title="Playback">
+        <Row label="Mizanora ads" hint="Mizanora (hamari apni shop) ki offers home aur player par dikhti hain — SIRAVEX ko free rakhne me madad milti hai. Band karne se banners aur pre-roll dono ruk jate hain."><Switch checked={settings.showAds} onChange={(v) => updateSettings({ showAds: v })} label="Mizanora ads" /></Row>
         <Row label="Autoplay" hint="Browsers may still require a tap for sound. SIRAVEX never autoplays with sound against browser policy."><Switch checked={settings.autoplay} onChange={(v) => updateSettings({ autoplay: v })} label="Autoplay" /></Row>
         <Row label="Resume playback"><Switch checked={settings.resumePlayback} onChange={(v) => updateSettings({ resumePlayback: v })} label="Resume playback" /></Row>
         <Row label="Default volume"><input type="range" min={0} max={1} step={0.05} value={settings.defaultVolume} onChange={(e) => updateSettings({ defaultVolume: Number(e.target.value) })} aria-label="Default volume" className="w-44 accent-sky-400" /><span className="text-sm text-muted">{Math.round(settings.defaultVolume * 100)}%</span></Row>

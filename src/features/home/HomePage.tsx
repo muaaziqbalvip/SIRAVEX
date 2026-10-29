@@ -4,6 +4,7 @@ import { ChevronRight, Film, ListVideo, Play, Tv } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { ChannelCard, MediaCard, SafeImage } from '@/components/media/MediaCard';
+import { MzAdSlot } from '@/components/ads/MzAdSlot';
 import { cleanTitle } from '@/lib/display';
 
 function RowHeader({ title, to }: { title: string; to: string }) {
@@ -69,6 +70,7 @@ export function HomePage() {
   const heroProgress = hero ? progress.find((p) => p.itemId === hero.id) : undefined;
   return (
     <div className="grid w-full min-w-0 max-w-full gap-6 sm:gap-7">
+      <MzAdSlot slot="auto" placement="home" />
       {hero && (
         <section className="relative overflow-hidden rounded-3xl border border-border bg-panel" aria-label="Featured" key={hero.id}>
           <div className="absolute inset-0"><SafeImage src={hero.backdrop || hero.poster || hero.logo} title={hero.title} className="h-full w-full opacity-40" /></div>

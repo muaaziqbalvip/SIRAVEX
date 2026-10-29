@@ -8,9 +8,9 @@
 
 **Live TV · Movies · Series · EPG Guide · Xtream Codes · Play Any Stream**
 
-[![Version](https://img.shields.io/badge/version-3.0.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
+[![Version](https://img.shields.io/badge/version-3.1.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
 [![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#-testing--qa)
-[![Tests](https://img.shields.io/badge/tests-46%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
+[![Tests](https://img.shields.io/badge/tests-51%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#-install-pwa)
@@ -33,6 +33,13 @@ SIRAVEX is an **installable PWA** for playing **your own authorized** IPTV and m
 > 🔒 **Privacy first:** everything lives in your browser (IndexedDB). Diagnostics and exports show **hosts only** — never full private URLs, tokens, or passwords.
 
 ---
+
+## 🎛 v3.1 “Studio” — failover ladder, pro track capture & built-in guides
+
+- **Failover ladder (BarakatWave-style):** a stream that fails to start no longer dies on the first attempt — Xtream HLS sources fall back to the same server's MPEG-TS variant, extension-less links walk an HLS → TS → Native chain, every candidate gets a 15-second watchdog, and the loading screen shows **“source 2/3”** while it works.
+- **Track capture, upgraded:** quality labels carry the manifest's real bandwidth (`1080p · 4.2 Mbps`), DASH variants dedupe by height with the strongest bitrate, and **ClearKey now accepts `kid:key`, JSON maps and full JWK key sets** — the formats providers actually hand out.
+- **Guides Help Center (`/guides`):** 12 built-in step-by-step guides — installation (Android / iPhone / Windows·Mac·Linux / Smart TV & Firestick), playlist & Xtream setup, a complete player manual, EPG setup, error-code troubleshooting, account/admin and privacy.
+- **More by the developer:** two new blog posts, including *“Building SIRAVEX from Kasur”* — and a ready-to-publish GitHub profile README in [`profile-readme/`](profile-readme/README.md).
 
 ## 🔥 v3.0 “Live” — Firebase, accounts, admin, blog & SEO
 
@@ -96,7 +103,7 @@ Rules the player follows: **nothing is faked.** If a source sends one rendition 
 ```bash
 npm install        # deps
 npm run dev        # http://localhost:5173
-npm test           # 46 tests
+npm test           # 51 tests
 npm run typecheck  # strict TypeScript
 npm run build      # production build → dist/
 ```
@@ -110,6 +117,7 @@ npm run build      # production build → dist/
 3. **Guide** — full XMLTV EPG auto-fetches for Xtream sources; any channel page can also load that channel's **short EPG** directly from the provider.
 4. **Play Any Stream** — paste any authorized URL (HLS, DASH incl. tokenized `render.mpd?auth=…`, TS, FLV, MP4). Force a format if auto-detect guesses wrong; add provider-issued ClearKey / Widevine licence under *Advanced* if your DASH stream is encrypted.
 5. **Install** — Chrome/Edge: install prompt or menu → *Install app*. iOS Safari: Share → *Add to Home Screen*.
+6. **Guides** — the built-in [Guides Help Center](/guides) has 12 step-by-step guides (install on every platform, setup, player manual, troubleshooting). Also on the [blog](/blog): release notes and the developer's story.
 
 ---
 
@@ -172,7 +180,7 @@ Full QA history, audits and honest limitations: [`docs/QA-REPORT.md`](docs/QA-RE
 
 ## 🧪 Testing & QA
 
-`npm test` — **46 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
+`npm test` — **51 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
 
 ## 📄 License
 

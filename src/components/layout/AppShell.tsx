@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarDays, CircleHelp, Film, Heart, History, Home, LayoutGrid, ListVideo, LogIn, MonitorPlay, Newspaper, Radio, Search, Settings, ShieldCheck, Stethoscope, Tv, X } from 'lucide-react';
+import { BookOpen, CalendarDays, CircleHelp, Film, Heart, History, Home, LayoutGrid, ListVideo, LogIn, MonitorPlay, Newspaper, Radio, Search, Settings, ShieldCheck, Stethoscope, Tv, X } from 'lucide-react';
 import { Button, Logo } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
 import { useAuth } from '@/services/firebase/AuthContext';
@@ -22,6 +22,7 @@ const NAV = [
   { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
   { to: '/help', label: 'Help & About', icon: CircleHelp },
   { to: '/blog', label: 'Blog', icon: Newspaper },
+  { to: '/guides', label: 'Guides', icon: BookOpen },
 ];
 const MOBILE_MAIN = NAV.slice(0, 4);
 

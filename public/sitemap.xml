@@ -14,4 +14,20 @@
   <url><loc>https://siravex.vercel.app/blog/install-siravex-app-pwa-guide</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
   <url><loc>https://siravex.vercel.app/help</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://siravex.vercel.app/login</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://siravex.vercel.app/blog/muaaz-iqbal-building-siravex</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://siravex.vercel.app/blog/siravex-3-1-failover-tracks-guides</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://siravex.vercel.app/guides</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/getting-started</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/add-m3u-playlist</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/xtream-codes-setup</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/play-any-stream</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/player-controls-mastery</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/install-android</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/install-ios</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/install-desktop</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/install-smart-tv</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/epg-guide-setup</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/troubleshooting-errors</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/account-and-admin</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/privacy-and-safety</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
 </urlset>

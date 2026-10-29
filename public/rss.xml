@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>SIRAVEX Blog</title>
+    <link>https://siravex.vercel.app/blog</link>
+    <atom:link href="https://siravex.vercel.app/rss.xml" rel="self" type="application/rss+xml" />
+    <description>IPTV setup guides, streaming format explainers and playback troubleshooting from SIRAVEX by Muaaz Iqbal.</description>
+    <language>en</language>
+    <lastBuildDate>Wed, 29 Oct 2026 00:00:00 GMT</lastBuildDate>
+    <item>
+      <title>How to Add Your IPTV Playlist to SIRAVEX (M3U &amp; Xtream Codes)</title>
+      <link>https://siravex.vercel.app/blog/how-to-add-your-iptv-playlist</link>
+      <guid>https://siravex.vercel.app/blog/how-to-add-your-iptv-playlist</guid>
+      <pubDate>Wed, 29 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Step-by-step: import an M3U file or URL, or connect an Xtream Codes account, and start watching in under a minute.</description>
+    </item>
+    <item>
+      <title>HLS vs DASH vs MPEG-TS: Which Stream Format Should You Use?</title>
+      <link>https://siravex.vercel.app/blog/hls-vs-dash-vs-mpegts-explained</link>
+      <guid>https://siravex.vercel.app/blog/hls-vs-dash-vs-mpegts-explained</guid>
+      <pubDate>Sun, 26 Oct 2026 00:00:00 GMT</pubDate>
+      <description>A plain-language guide to the streaming formats SIRAVEX supports, and why some links cannot play in any browser.</description>
+    </item>
+    <item>
+      <title>Playback Failed? Read the Error Code (DASH 1001, 6xxx, CORS…)</title>
+      <link>https://siravex.vercel.app/blog/fix-playback-errors-error-codes</link>
+      <guid>https://siravex.vercel.app/blog/fix-playback-errors-error-codes</guid>
+      <pubDate>Wed, 22 Oct 2026 00:00:00 GMT</pubDate>
+      <description>What the common SIRAVEX error codes mean and exactly what to do about each one.</description>
+    </item>
+    <item>
+      <title>Install SIRAVEX Like a Real App (Android, iPhone, Desktop)</title>
+      <link>https://siravex.vercel.app/blog/install-siravex-app-pwa-guide</link>
+      <guid>https://siravex.vercel.app/blog/install-siravex-app-pwa-guide</guid>
+      <pubDate>Sun, 18 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Install SIRAVEX to your home screen for a full-screen, app-like experience with your library stored on-device.</description>
+    </item>
+  </channel>
+</rss>

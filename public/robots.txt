@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /diagnostics
+
+Sitemap: https://siravex.vercel.app/sitemap.xml

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '@/app/store';
+import { clearAllCachesAndReload } from '@/lib/update';
 import { Button, Card, ConfirmDialog, Select, Switch } from '@/components/ui/ui';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -40,7 +41,7 @@ export function SettingsPage() {
       </Section>
       <Section title="Privacy & Storage">
         <p className="text-sm leading-6 text-muted">SIRAVEX stores playlists, items, EPG, favourites, progress and settings <strong className="text-silver">only on this device</strong> (IndexedDB + local settings). There is no account, no analytics and no server upload. Playlist URLs can contain private tokens — SIRAVEX shows only the host, never logs full URLs, and exports exclude URLs and all credentials by default. “Remove saved credentials” means disconnecting sources below, because passwords are never persisted.</p>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void clearHistory().then(() => toast({ tone: 'success', title: 'History cleared' }))}>Clear history</Button><Button variant="outline" onClick={exportSettings}>Export settings (no secrets)</Button><Button variant="danger" onClick={() => setConfirmClear(true)}>Clear cached metadata & all local data</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void clearHistory().then(() => toast({ tone: 'success', title: 'History cleared' }))}>Clear history</Button><Button variant="outline" onClick={exportSettings}>Export settings (no secrets)</Button><Button variant="outline" onClick={() => void clearAllCachesAndReload()}>Clear app cache & reload</Button><Button variant="danger" onClick={() => setConfirmClear(true)}>Clear cached metadata & all local data</Button></div>
       </Section>
       <Section title="Reset">
         <Row label="Reset all settings to defaults"><Button variant="danger" onClick={() => setConfirmReset(true)}>Reset settings…</Button></Row>

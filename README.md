@@ -8,9 +8,9 @@
 
 **Live TV · Movies · Series · EPG Guide · Xtream Codes · Play Any Stream**
 
-[![Version](https://img.shields.io/badge/version-2.2.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
+[![Version](https://img.shields.io/badge/version-3.0.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
 [![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#-testing--qa)
-[![Tests](https://img.shields.io/badge/tests-44%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
+[![Tests](https://img.shields.io/badge/tests-46%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#-install-pwa)
@@ -33,6 +33,21 @@ SIRAVEX is an **installable PWA** for playing **your own authorized** IPTV and m
 > 🔒 **Privacy first:** everything lives in your browser (IndexedDB). Diagnostics and exports show **hosts only** — never full private URLs, tokens, or passwords.
 
 ---
+
+## 🔥 v3.0 “Live” — Firebase, accounts, admin, blog & SEO
+
+- **Accounts:** Google sign-in + Email/Password (Firebase Auth). Login is optional — the player and your local library work fully without it.
+- **Deep tracking (privacy-bounded):** logged-in users' presence (last active, last IP), last watched channel/movie (title + kind only) and watch time sync to Firestore. **Stream URLs/tokens are never tracked** — enforced by a tested payload builder.
+- **Admin dashboard (`/admin`):** user table (IP, last watched, sessions, watch time, last active), live-online counter, and an **announcement publisher** — write an update note once and every user sees the banner.
+- **Blog & SEO:** real routes (`/blog`, `/blog/:slug`), OpenGraph/Twitter meta + JSON-LD, `sitemap.xml`, `robots.txt`, `rss.xml`, and per-page titles/descriptions (BrowserRouter).
+- **Update system:** new-version toasts with automatic old-cache cleanup, the service-worker "new version ready" banner, and a Settings → *Clear app cache & reload* button.
+
+### Firebase setup (one-time, 5 minutes)
+
+1. Firebase Console → **Authentication → Sign-in method**: enable **Google** and **Email/Password**.
+2. **Authentication → Settings → Authorized domains**: add your domain (e.g. `siravex.vercel.app`, `localhost` is pre-added).
+3. **Firestore Database → Rules**: paste the repo's [`firestore.rules`](firestore.rules) and Publish (or `firebase deploy --only firestore:rules`). Without this, the admin user list stays empty — by design.
+4. Admin access = your email in `ADMIN_EMAILS` (`src/services/firebase/firebase.ts`) **and** in `firestore.rules`. The web `firebaseConfig` in code is a public client identifier — your data is protected by the rules, not by hiding the key.
 
 ## 🚀 v2.2 “Nexus” — full playback audit
 
@@ -81,7 +96,7 @@ Rules the player follows: **nothing is faked.** If a source sends one rendition 
 ```bash
 npm install        # deps
 npm run dev        # http://localhost:5173
-npm test           # 44 tests
+npm test           # 46 tests
 npm run typecheck  # strict TypeScript
 npm run build      # production build → dist/
 ```
@@ -157,7 +172,7 @@ Full QA history, audits and honest limitations: [`docs/QA-REPORT.md`](docs/QA-RE
 
 ## 🧪 Testing & QA
 
-`npm test` — **44 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
+`npm test` — **46 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
 
 ## 📄 License
 

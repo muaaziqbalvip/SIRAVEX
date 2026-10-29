@@ -18,6 +18,10 @@ const DiagnosticsPage = lazy(() => import('@/features/diagnostics/DiagnosticsPag
 const HelpPage = lazy(() => import('@/features/help/HelpPage').then((m) => ({ default: m.HelpPage })));
 const PlayerPage = lazy(() => import('@/features/player/PlayerPage').then((m) => ({ default: m.PlayerPage })));
 const DirectPlayPage = lazy(() => import('@/features/direct/DirectPlayPage').then((m) => ({ default: m.DirectPlayPage })));
+const LoginPage = lazy(() => import('@/features/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
+const BlogPage = lazy(() => import('@/features/blog/BlogPages').then((m) => ({ default: m.BlogPage })));
+const BlogPostPage = lazy(() => import('@/features/blog/BlogPages').then((m) => ({ default: m.BlogPostPage })));
+const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -51,6 +55,10 @@ export function App() {
             <Route path="diagnostics" element={<DiagnosticsPage />} />
             <Route path="help" element={<HelpPage />} />
             <Route path="direct" element={<DirectPlayPage />} />
+            <Route path="login" element={<LoginPage />} />
+            <Route path="blog" element={<BlogPage />} />
+            <Route path="blog/:slug" element={<BlogPostPage />} />
+            <Route path="admin" element={<AdminPage />} />
             <Route path="player/:id" element={<PlayerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

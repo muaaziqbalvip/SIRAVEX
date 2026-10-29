@@ -30,6 +30,8 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const [snap, setSnap] = useState<PlayerSnapshot>(IDLE);
   const [theatre, setTheatre] = useState(false);
   const [panel, setPanel] = useState<Panel>('none');
+  const panelRef = useRef<Panel>('none');
+  useEffect(() => { panelRef.current = panel; }, [panel]);
   const [fit, setFit] = useState<'contain' | 'cover'>('contain');
   const [notice, setNotice] = useState('');
   const [statsOn, setStatsOn] = useState(false);
@@ -45,18 +47,18 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
 
   const nowNext = useMemo(() => {
     if (!item.tvgId) return {};
-    const list = programmes.filter((p) => p.channelId === item.tvgId).sort((a, b) => a.start - b.start);
+    const list = programmes.filter((p) => p.channelId === item.tvgId || p.channelId === item.id).sort((a, b) => a.start - b.start);
     const now = Date.now();
     return { current: list.find((p) => now >= p.start && now < p.end), next: list.find((p) => p.start > now) };
   }, [programmes, item.tvgId]);
 
-  /** Auto-hide ONLY jab: playing hai, koi panel khula nahi, stats band hain. Panel khulte hi timer cancel. */
+  /** Auto-hide sirf jab playing hai aur koi panel khula nahi. Panel khulte hi timer cancel. */
   const poke = useCallback((isPlaying: boolean) => {
     setControlsVisible(true);
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     hideTimer.current = null;
     if (isPlaying) {
-      hideTimer.current = window.setTimeout(() => { setPanel((p) => { if (p === 'none') setControlsVisible(false); return p; }); }, 3200);
+      hideTimer.current = window.setTimeout(() => { if (panelRef.current === 'none') setControlsVisible(false); }, 3400);
     }
   }, []);
 
@@ -81,7 +83,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       if ((s.state === 'playing' || s.state === 'paused') && !resumedRef.current) {
         resumedRef.current = true;
         const saved = progress.find((p) => p.itemId === item.id);
-        if (settings.resumePlayback && saved && saved.position > 10 && saved.duration > 0 && saved.position / saved.duration < 0.95 && Math.abs(video.currentTime - saved.position) > 3) {
+        if (item.kind !== 'live' && settings.resumePlayback && saved && saved.position > 10 && saved.duration > 0 && saved.position / saved.duration < 0.95 && Math.abs(video.currentTime - saved.position) > 3) {
           try { video.currentTime = saved.position; } catch { /* not seekable yet */ }
         }
       }
@@ -154,9 +156,10 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       track.setAttribute('data-siravex-ext', '1');
       video.appendChild(track);
       window.setTimeout(() => {
-        for (let i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].label === file.name) { engine.setSubtitle(String(i)); break; }
-        setNotice(`Subtitle loaded: ${file.name}`);
-      }, 60);
+        let done = false;
+        for (let i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].label === file.name) { engine.showExternalSubtitle(i); done = true; break; }
+        setNotice(done ? `Subtitle loaded: ${file.name}` : 'Subtitle file add ho gayi magar browser ne track register nahi kiya.');
+      }, 80);
       setPanel('none');
     } catch { setNotice('Subtitle file parhi nahi ja saki.'); }
   };

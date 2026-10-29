@@ -26,7 +26,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2}'], maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        navigateFallback: '/offline.html', navigateFallbackDenylist: [/^\/api\//],
+        navigateFallback: '/index.html', navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [{ urlPattern: ({ request }) => request.destination === 'image', handler: 'CacheFirst', options: { cacheName: 'siravex-images', expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 7 } } }],
       },
       devOptions: { enabled: false },

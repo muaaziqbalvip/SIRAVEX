@@ -45,3 +45,13 @@ describe('shaka error codes', () => {
     expect(r.codeLabel).toBe('DASH error 42');
   });
 });
+
+describe('shaka severity gate', () => {
+  it('treats RECOVERABLE (1) as non-fatal so the player keeps retrying itself', async () => {
+    const { isShakaCritical } = await import('./mapper');
+    expect(isShakaCritical({ severity: 1 })).toBe(false);
+    expect(isShakaCritical({ severity: 2 })).toBe(true);
+    expect(isShakaCritical(null)).toBe(true);
+    expect(isShakaCritical(undefined)).toBe(true);
+  });
+});

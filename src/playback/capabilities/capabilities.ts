@@ -45,8 +45,11 @@ export function formatOf(url: string, forced?: string): StreamFormat {
   if (clean.endsWith('.ts')) return 'mpegts';
   if (clean.endsWith('.flv')) return 'flv';
   if (/\.(mp4|m4v|mov|webm|mkv|mp3|aac|ogg|opus|wav)$/.test(clean)) return 'native';
-  // Extension-less endpoints: sniff well-known hints, else let the native element try.
-  if (/(^|\/)(render|manifest|playlist|stream|live)(\.|$)/.test(clean) || /[?&](format|type)=(mpd|dash)/.test(url)) return 'dash';
-  if (/\.ism(\/|$)/.test(clean)) return 'hls'; // Smooth Streaming .ism -> usually served as HLS via /manifest(format=m3u8-aapl)
+  // Extension-less endpoints: sirf WAZEH DASH hint par dash. Pehle har
+  // /stream, /live, /playlist wale URL ko DASH guess kiya jata tha — ghalat
+  // engine matlab guaranteed error screen. Baqi native attempt karega aur
+  // user Play Stream se format force kar sakta hai.
+  if (/[?&](format|type)=(mpd|dash)/.test(url) || /(^|\/)render(\.|$)/.test(clean)) return 'dash';
+  if (/\.ism(\/|$)/.test(clean) || /manifest\(format=m3u8/.test(url.toLowerCase())) return 'hls';
   return 'unknown';
 }

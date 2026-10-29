@@ -3,12 +3,13 @@ import type { AppSettings, EpgProgramme, Favourite, MediaItem, PlaybackDiagnosti
 import { DEFAULT_SETTINGS } from '@/types/models';
 import { parseM3U, buildDemoPlaylistText } from '@/services/playlist/m3u';
 import { parseXmltv } from '@/services/epg/xmltv';
+import { connectXtream, fetchSeriesEpisodes, fetchXtreamEpg, type XtreamCreds } from '@/services/xtream/xtream';
 import * as db from '@/services/storage/db';
 import { downloadJson, redactUrl, sanitizeUrl, validatePlaylistFile } from '@/lib/security';
 
 const SETTINGS_KEY = 'siravex-settings-v1';
 export interface Toast { id: number; title: string; body?: string; tone: 'success' | 'error' | 'info' }
-interface ImportPreview { name: string; items: Omit<MediaItem, 'id' | 'playlistId'>[]; warnings: string[]; errors: string[]; total: number }
+export interface ImportPreview { name: string; items: Omit<MediaItem, 'id' | 'playlistId'>[]; warnings: string[]; errors: string[]; total: number; epgCount?: number; accountNote?: string }
 
 interface Store {
   ready: boolean; storageError: string | null;
@@ -17,10 +18,12 @@ interface Store {
   favourites: Favourite[]; progress: WatchProgress[]; diagnostics: PlaybackDiagnostic[];
   toasts: Toast[]; toast: (t: Omit<Toast, 'id'>) => void; dismissToast: (id: number) => void;
   previewFile: (file: File, name: string) => Promise<ImportPreview>;
-  commitImport: (name: string, parsed: ImportPreview, type: PlaylistSource['type'], url?: string) => Promise<void>;
+  commitImport: (name: string, parsed: ImportPreview, type: PlaylistSource['type'], opts?: { url?: string; server?: string; username?: string; password?: string; remember?: boolean }) => Promise<void>;
   importDemo: () => Promise<void>;
   importUrl: (name: string, url: string) => Promise<ImportPreview>;
-  importXtream: (name: string, server: string, username: string, password: string) => Promise<ImportPreview>;
+  importXtream: (name: string, creds: XtreamCreds) => Promise<ImportPreview>;
+  refreshXtreamEpg: (playlistId: string, password?: string) => Promise<number>;
+  loadSeriesEpisodes: (item: MediaItem, password?: string) => Promise<number>;
   importEpg: (file: File) => Promise<{ count: number; warnings: string[] }>;
   renamePlaylist: (id: string, name: string) => Promise<void>;
   togglePlaylist: (id: string) => Promise<void>;
@@ -29,7 +32,7 @@ interface Store {
   refreshPlaylist: (id: string) => Promise<void>;
   toggleFavourite: (itemId: string) => Promise<void>;
   isFavourite: (itemId: string) => boolean;
-  saveProgress: (itemId: string, position: number, duration: number) => Promise<void>;
+  saveProgress: (itemId: string, position: number, duration: number) => void;
   removeProgress: (itemId: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   logDiagnostic: (category: string, message: string, url?: string) => Promise<void>;
@@ -55,22 +58,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [diagnostics, setDiagnostics] = useState<PlaybackDiagnostic[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const progressTimer = useRef<number | null>(null);
+  const progressRef = useRef<Map<string, WatchProgress>>(new Map());
+  const pendingEpgRef = useRef<Map<string, Omit<EpgProgramme, 'id' | 'playlistId'>[]>>(new Map());
 
   const toast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.random();
-    setToasts((p) => [...p, { ...t, id }]);
+    setToasts((p) => [...p.slice(-2), { ...t, id }]);
     setTimeout(() => setToasts((p) => p.filter((x) => x.id !== id)), 6000);
   }, []);
   const dismissToast = useCallback((id: number) => setToasts((p) => p.filter((x) => x.id !== id)), []);
 
   useEffect(() => {
-    db.loadAll().then((d) => { setPlaylists(d.playlists); setItems(d.items); setProgrammes(d.programmes); setFavourites(d.favourites); setProgress(d.progress); setDiagnostics(d.diagnostics); })
+    db.loadAll().then((d) => {
+      setPlaylists(d.playlists); setItems(d.items); setProgrammes(d.programmes); setFavourites(d.favourites); setDiagnostics(d.diagnostics);
+      setProgress(d.progress); d.progress.forEach((p) => progressRef.current.set(p.itemId, p));
+    })
       .catch(() => setStorageError('Local storage (IndexedDB) is unavailable. The app still works, but playlists will not survive a refresh in this browser mode.'))
       .finally(() => setReady(true));
   }, []);
 
   useEffect(() => {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore quota/private mode */ }
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
     const root = document.documentElement;
     const dark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     root.classList.toggle('dark', dark);
@@ -84,16 +92,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logDiagnostic = useCallback(async (category: string, message: string, url?: string) => {
     const diag: PlaybackDiagnostic = { id: db.uid('diag'), at: Date.now(), category, message: message.slice(0, 300), urlHost: url ? redactUrl(url) : undefined };
-    setDiagnostics((p) => [diag, ...p].slice(0, 100));
-    try { await db.addDiagnostic(diag); } catch { /* storage unavailable */ }
+    setDiagnostics((p) => (p[0]?.message === diag.message ? p : [diag, ...p].slice(0, 100)));
+    try { await db.addDiagnostic(diag); } catch { /* ignore */ }
   }, []);
 
   const persistPlaylistItems = useCallback(async (playlist: PlaylistSource, parsedItems: Omit<MediaItem, 'id' | 'playlistId'>[]) => {
     const full: MediaItem[] = parsedItems.map((it, i) => ({ ...it, id: `${playlist.id}:${i}:${it.title.slice(0, 32)}`, playlistId: playlist.id }));
     try { await db.putPlaylist(playlist); await db.replaceItems(playlist.id, full); } catch { setStorageError('Could not save to IndexedDB (quota or private browsing). Items are kept for this session only.'); }
-    setPlaylists((p) => { const without = p.filter((x) => x.id !== playlist.id); return [...without, playlist]; });
+    setPlaylists((p) => [...p.filter((x) => x.id !== playlist.id), playlist]);
     setItems((p) => [...p.filter((x) => x.playlistId !== playlist.id), ...full]);
     return full;
+  }, []);
+
+  const persistProgrammes = useCallback(async (playlistId: string, raw: Omit<EpgProgramme, 'id' | 'playlistId'>[]) => {
+    const full: EpgProgramme[] = raw.map((p, i) => ({ ...p, id: `epg:${playlistId}:${i}:${p.channelId}`, playlistId }));
+    try { await db.replaceProgrammesForPlaylist(playlistId, full); } catch { /* session only */ }
+    setProgrammes((prev) => [...prev.filter((p) => p.playlistId !== playlistId), ...full]);
+    return full.length;
   }, []);
 
   const previewFile = useCallback(async (file: File, name: string): Promise<ImportPreview> => {
@@ -104,11 +119,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { name: name || file.name.replace(/\.(m3u8?|txt)$/i, ''), items: parsed.items, warnings: parsed.report.warnings, errors: parsed.report.errors, total: parsed.report.total };
   }, []);
 
-  const commitImport = useCallback(async (name: string, parsed: ImportPreview, type: PlaylistSource['type'], url?: string) => {
+  const commitImport = useCallback(async (name: string, parsed: ImportPreview, type: PlaylistSource['type'], opts?: { url?: string; server?: string; username?: string; password?: string; remember?: boolean }) => {
     if (parsed.errors.length && parsed.items.length === 0) throw new Error(parsed.errors[0]);
-    const playlist: PlaylistSource = { id: db.uid('pl'), name: name.trim() || 'My Playlist', type, url, enabled: true, isDefault: playlists.length === 0, itemCount: parsed.items.length, createdAt: Date.now(), lastImportedAt: Date.now() };
+    const playlist: PlaylistSource = {
+      id: db.uid('pl'), name: name.trim() || 'My Playlist', type,
+      url: opts?.url, server: opts?.server, username: opts?.username,
+      password: opts?.remember ? opts?.password : undefined, hasPassword: !!opts?.password,
+      enabled: true, isDefault: playlists.length === 0, itemCount: parsed.items.length,
+      createdAt: Date.now(), lastImportedAt: Date.now(), lastEpgAt: parsed.epgCount ? Date.now() : undefined,
+    };
     await persistPlaylistItems(playlist, parsed.items);
-  }, [persistPlaylistItems, playlists.length]);
+    const pending = pendingEpgRef.current.get(parsed.name);
+    if (pending?.length) { await persistProgrammes(playlist.id, pending); pendingEpgRef.current.delete(parsed.name); }
+  }, [persistPlaylistItems, persistProgrammes, playlists.length]);
 
   const importDemo = useCallback(async () => {
     const parsed = parseM3U(buildDemoPlaylistText());
@@ -135,45 +158,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { name: name || 'Remote playlist', items: parsed.items, warnings: parsed.report.warnings, errors: parsed.report.errors, total: parsed.report.total };
   }, []);
 
-  const importXtream = useCallback(async (name: string, server: string, username: string, password: string): Promise<ImportPreview> => {
-    const base = sanitizeUrl(server);
-    if (!base || !username.trim() || !password) throw new Error('Server address, username and password are required.');
-    // Isolated provider service: builds the standard get.php M3U endpoint. Credentials are used only for this request and never logged.
-    const u = new URL(base); u.pathname = u.pathname.replace(/\/?$/, '/') + 'get.php';
-    u.searchParams.set('username', username.trim()); u.searchParams.set('password', password); u.searchParams.set('type', 'm3u_plus'); u.searchParams.set('output', 'ts');
-    const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 25000);
-    let text: string;
-    try {
-      const res = await fetch(u.toString(), { signal: ctrl.signal });
-      if (res.status === 401 || res.status === 403) throw new Error('Provider rejected the credentials (HTTP ' + res.status + '). Check username, password and account expiry.');
-      if (!res.ok) throw new Error(`Provider returned HTTP ${res.status}. Not every Xtream-compatible panel allows browser access.`);
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > 15 * 1024 * 1024) throw new Error('Playlist response exceeds the 15 MB safety limit.');
-      text = new TextDecoder().decode(buf);
-    } catch (e) {
-      if (e instanceof Error && /Provider|credentials/.test(e.message)) throw e;
-      throw new Error('Could not reach the provider from the browser (commonly CORS or provider browser-blocking). SIRAVEX cannot bypass provider restrictions — ask your provider for an M3U file download and import it locally.');
-    } finally { clearTimeout(timer); }
-    const parsed = parseM3U(text);
-    return { name: name || 'Xtream playlist', items: parsed.items, warnings: parsed.report.warnings, errors: parsed.report.errors, total: parsed.report.total };
+  /** Real Xtream Codes API connect (player_api.php + xmltv.php) — replaces the old get.php/ts flow. */
+  const importXtream = useCallback(async (name: string, creds: XtreamCreds): Promise<ImportPreview> => {
+    const result = await connectXtream(creds);
+    const preview: ImportPreview = { name: name || 'Xtream playlist', items: result.items, warnings: result.warnings, errors: result.items.length === 0 ? ['No live, movie or series items were returned by the provider.'] : [], total: result.items.length, epgCount: result.programmes.length, accountNote: result.accountNote };
+    if (result.programmes.length) pendingEpgRef.current.set(preview.name, result.programmes);
+    return preview;
   }, []);
+
+  const refreshXtreamEpg = useCallback(async (playlistId: string, password?: string): Promise<number> => {
+    const p = playlists.find((x) => x.id === playlistId);
+    if (!p?.server || !p.username) throw new Error('This source has no saved Xtream server/username. Reconnect it from Add Source.');
+    const pass = password ?? p.password;
+    if (!pass) throw new Error('Enter the account password to fetch EPG (it was not saved on this device).');
+    const { programmes: progs } = await fetchXtreamEpg({ server: p.server, username: p.username, password: pass });
+    if (progs.length === 0) throw new Error('Provider XMLTV returned no programmes.');
+    const count = await persistProgrammes(playlistId, progs);
+    const updated = { ...p, lastEpgAt: Date.now() };
+    setPlaylists((all) => all.map((x) => (x.id === playlistId ? updated : x)));
+    try { await db.putPlaylist(updated); } catch { /* ignore */ }
+    return count;
+  }, [playlists, persistProgrammes]);
+
+  const loadSeriesEpisodes = useCallback(async (item: MediaItem, password?: string): Promise<number> => {
+    const p = playlists.find((x) => x.id === item.playlistId);
+    if (!item.seriesId) throw new Error('This series has no provider series id.');
+    if (!p?.server || !p.username) throw new Error('Episodes load on demand only for Xtream sources. Re-import this series via Xtream to load episodes.');
+    const pass = password ?? p.password;
+    if (!pass) throw new Error('Enter the account password to load episodes (it was not saved on this device).');
+    const eps = await fetchSeriesEpisodes({ server: p.server, username: p.username, password: pass }, item.seriesId, { title: item.seriesTitle ?? item.title, group: item.group, poster: item.poster ?? item.logo });
+    if (eps.length === 0) throw new Error('Provider returned no episodes for this series.');
+    const startIdx = items.filter((i) => i.playlistId === p.id).length;
+    const full: MediaItem[] = eps.map((ep, i) => ({ ...ep, id: `${p.id}:ep${item.seriesId}:${startIdx + i}`, playlistId: p.id }));
+    setItems((prev) => [...prev.filter((x) => x.id !== item.id), ...full]);
+    try { const all = [...items.filter((x) => x.id !== item.id), ...full]; await db.replaceItems(p.id, all.filter((x) => x.playlistId === p.id)); } catch { /* session only */ }
+    return full.length;
+  }, [playlists, items]);
 
   const importEpg = useCallback(async (file: File): Promise<{ count: number; warnings: string[] }> => {
     if (file.size > 25 * 1024 * 1024) throw new Error('EPG file exceeds the 25 MB safety limit.');
     const text = await file.text();
     const parsed = parseXmltv(text);
     if (parsed.warnings.length && parsed.programmes.length === 0) throw new Error(parsed.warnings[0]);
-    const full: EpgProgramme[] = parsed.programmes.map((p, i) => ({ ...p, id: `epg:${i}:${p.channelId}` }));
-    try { await db.putProgrammes(full); } catch { setStorageError('EPG imported for this session but could not be saved (storage unavailable).'); }
-    setProgrammes(full);
-    return { count: full.length, warnings: parsed.warnings };
-  }, []);
+    const count = await persistProgrammes('file-epg', parsed.programmes);
+    return { count, warnings: parsed.warnings };
+  }, [persistProgrammes]);
 
   const renamePlaylist = useCallback(async (id: string, name: string) => {
     const p = playlists.find((x) => x.id === id); if (!p || !name.trim()) return;
     const next = { ...p, name: name.trim() };
     setPlaylists((all) => all.map((x) => (x.id === id ? next : x)));
-    try { await db.putPlaylist(next); } catch { /* session only */ }
+    try { await db.putPlaylist(next); } catch { /* ignore */ }
   }, [playlists]);
   const togglePlaylist = useCallback(async (id: string) => {
     const p = playlists.find((x) => x.id === id); if (!p) return;
@@ -189,11 +224,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deletePlaylist = useCallback(async (id: string) => {
     setPlaylists((p) => p.filter((x) => x.id !== id));
     setItems((p) => p.filter((x) => x.playlistId !== id));
+    setProgrammes((p) => p.filter((x) => x.playlistId !== id));
     try { await db.deletePlaylistCascade(id); } catch { /* ignore */ }
   }, []);
   const refreshPlaylist = useCallback(async (id: string) => {
     const p = playlists.find((x) => x.id === id);
     if (!p) return;
+    if (p.type === 'xtream') throw new Error('Xtream sources refresh by reconnecting (server + password) so new categories/EPG are fetched. Use “Fetch EPG” for guide-only refresh.');
     if (!p.url) { toast({ tone: 'info', title: 'Nothing to refresh', body: 'File and demo playlists are refreshed by importing the file again.' }); return; }
     const parsed = await importUrl(p.name, p.url);
     const next: PlaylistSource = { ...p, itemCount: parsed.items.length, lastImportedAt: Date.now(), lastError: undefined };
@@ -212,30 +249,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [favourites]);
 
-  const saveProgress = useCallback(async (itemId: string, position: number, duration: number) => {
-    const entry: WatchProgress = { itemId, position, duration, updatedAt: Date.now(), completed: duration > 0 && position / duration > 0.95 };
+  /**
+   * GLITCH FIX: previously every `timeupdate` (4x/sec) created a new progress array ->
+   * the ENTIRE app re-rendered 4x/sec during playback (mobile flicker + battery drain).
+   * Now state only changes when position moved >= 5s or completion flipped; DB writes
+   * are debounced. Playback UI keeps its own high-frequency state inside PlayerShell.
+   */
+  const saveProgress = useCallback((itemId: string, position: number, duration: number) => {
+    const prev = progressRef.current.get(itemId);
+    const completed = duration > 0 && position / duration > 0.95;
+    if (prev && !completed && !prev.completed && Math.abs(prev.position - position) < 5) return;
+    const entry: WatchProgress = { itemId, position, duration, updatedAt: Date.now(), completed };
+    progressRef.current.set(itemId, entry);
     setProgress((p) => [...p.filter((x) => x.itemId !== itemId), entry]);
     if (progressTimer.current) window.clearTimeout(progressTimer.current);
-    progressTimer.current = window.setTimeout(() => { void db.putProgress(entry).catch(() => undefined); }, 400);
+    progressTimer.current = window.setTimeout(() => { void db.putProgress(entry).catch(() => undefined); }, 600);
   }, []);
-  const removeProgress = useCallback(async (itemId: string) => { setProgress((p) => p.filter((x) => x.itemId !== itemId)); try { await db.deleteProgress(itemId); } catch { /* ignore */ } }, []);
-  const clearHistory = useCallback(async () => { setProgress([]); try { await db.clearProgress(); } catch { /* ignore */ } }, []);
+  const removeProgress = useCallback(async (itemId: string) => { progressRef.current.delete(itemId); setProgress((p) => p.filter((x) => x.itemId !== itemId)); try { await db.deleteProgress(itemId); } catch { /* ignore */ } }, []);
+  const clearHistory = useCallback(async () => { progressRef.current.clear(); setProgress([]); try { await db.clearProgress(); } catch { /* ignore */ } }, []);
   const clearLocalData = useCallback(async () => {
+    progressRef.current.clear();
     setPlaylists([]); setItems([]); setProgrammes([]); setFavourites([]); setProgress([]);
     try { await db.clearAllData(); } catch { /* ignore */ }
     try { localStorage.removeItem(SETTINGS_KEY); } catch { /* ignore */ }
   }, []);
   const exportSettings = useCallback(() => {
-    // Non-sensitive export only: preferences + playlist names/types. URLs, usernames and passwords are excluded by default.
     downloadJson('siravex-settings.json', { version: 1, settings, playlists: playlists.map((p) => ({ name: p.name, type: p.type, enabled: p.enabled })) });
   }, [settings, playlists]);
 
   const value = useMemo<Store>(() => ({
     ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics,
-    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, importEpg,
+    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, importEpg,
     renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist,
     toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings,
-  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
+  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

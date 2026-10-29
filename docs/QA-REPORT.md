@@ -48,3 +48,18 @@ Real-device install (Android Chrome, iOS Safari Add-to-Home-Screen), playback of
 ## Known limitations
 
 Xtream/DASH track APIs vary by provider/build; subtitle styling applies to native-rendered cues; very large playlists are capped in search/EPG rendering; hash routing is used deliberately for bulletproof static hosting; light theme is a token-level override of the dark-first design.
+
+## v1.1 — Field-fix release (user-reported: mobile glitch, home/movies/channels, audio/quality, Xtream EPG, brand icon)
+
+Root causes found & fixed:
+1. **Mobile screen glitch/flicker** — `saveProgress` created a new store array on every `timeupdate` (4x/sec) re-rendering the whole app during playback. Now: store writes only on >=5s movement/completion flip, DB debounced; cards memoized (`React.memo`); broken provider images render a branded initials fallback instead of a blank box.
+2. **Black/frozen video** — engine called `video.load()` after attaching HLS.js MSE, destroying the source buffer. Removed; handlers now register before `loadSource` via `MEDIA_ATTACHED`.
+3. **Quality "nahi pakadta"** — Shaka ABR overrode manual picks. Now selecting a rendition disables ABR and locks the matching height; HLS uses `currentLevel` locking + `LEVEL_SWITCHED` shows the real playing rendition (e.g. "Auto · 720p").
+4. **Audio tracks missing** — lists now sync on `AUDIO_TRACKS_UPDATED`/`SUBTITLE_TRACKS_UPDATED` (not only manifest parse), with Safari native `audioTracks` fallback; track UI is a touch-friendly sheet, incl. Speed/Theatre/PiP.
+5. **Xtream EPG "nahi pakadta"** — old code only fetched `get.php ... output=ts` and never touched EPG. Replaced with the real XC API: `player_api.php` auth/categories/live/VOD/series (+ bounded episode fetch, on-demand placeholders), HLS stream URLs, and `xmltv.php` EPG at connect + "Fetch EPG" per source (Playlists & Guide pages). Short-EPG base64 decoding implemented for fallback data.
+6. **Unplayable Xtream/M3U .ts links** — Xtream-shaped `/live|movie|series/.../*.ts` URLs normalize to the provider's own `.m3u8` HLS output; generic .ts remains honestly unsupported.
+7. **Brand icon** — the user's supplied logo is now the actual logo everywhere: sidebar, mobile header, more-sheet, home hero, player error, favicon (32/64), apple-touch-icon 180, PWA 192/512 + maskable 512 (generated from the original 1254px artwork).
+8. **Mobile navigation** — "More" no longer dumps users into Settings; it opens a bottom sheet with Guide/Favourites/History/Playlists/Settings/Diagnostics/Help. Home rebuilt as OTT rows (rotating hero, Continue Watching, Live horizontal rail with Now titles, Movies/Series/Favourites grids); Live got category chips + capped rendering (400) for huge playlists; Movies got year-from-title, sort (A-Z/year/rating), provider posters/ratings; Series got expandable show cards with on-demand episode loading.
+
+Verification: `npm run typecheck` ✅ · `npm test` ✅ 26/26 (new xtream suite: server normalize, HLS URL building, base64 UTF-8, .ts→.m3u8, year extraction) · `npm run build` ✅ (manifest with new icons, sw.js generated).
+Still manual: real-provider Xtream login + EPG on a user account (no credentials available in this sandbox), real-device PWA install, physical-device playback/codec check.

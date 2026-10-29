@@ -34,7 +34,7 @@ export async function loadAll(): Promise<{ playlists: PlaylistSource[]; items: M
 export async function putPlaylist(p: PlaylistSource): Promise<void> { await (await db()).put('playlists', p); }
 export async function deletePlaylistCascade(id: string): Promise<void> {
   const d = await db();
-  const tx = d.transaction(['playlists', 'items', 'favourites', 'progress'], 'readwrite');
+  const tx = d.transaction(['playlists', 'items', 'favourites', 'progress', 'programmes'], 'readwrite');
   await tx.objectStore('playlists').delete(id);
   const items = await tx.objectStore('items').index('by-playlist').getAll(id) as unknown as MediaItem[];
   for (const it of items) {
@@ -42,6 +42,8 @@ export async function deletePlaylistCascade(id: string): Promise<void> {
     await tx.objectStore('favourites').delete(`fav:${it.id}`);
     await tx.objectStore('progress').delete(it.id);
   }
+  const progs = (await tx.objectStore('programmes').getAll()) as unknown as EpgProgramme[];
+  for (const p of progs) if (p.playlistId === id) await tx.objectStore('programmes').delete(p.id);
   await tx.done;
 }
 export async function replaceItems(playlistId: string, items: MediaItem[]): Promise<void> {
@@ -57,6 +59,22 @@ export async function putProgrammes(programmes: EpgProgramme[]): Promise<void> {
   const tx = d.transaction('programmes', 'readwrite');
   await tx.store.clear();
   for (const p of programmes) await tx.store.put(p);
+  await tx.done;
+}
+/** v2: replace only one playlist's EPG so multiple Xtream/file sources can coexist. */
+export async function replaceProgrammesForPlaylist(playlistId: string, programmes: EpgProgramme[]): Promise<void> {
+  const d = await db();
+  const all = (await d.getAll('programmes')) as unknown as EpgProgramme[];
+  const tx = d.transaction('programmes', 'readwrite');
+  for (const p of all) if (p.playlistId === playlistId || (!p.playlistId && playlistId === 'file-epg')) await tx.store.delete(p.id);
+  for (const p of programmes) await tx.store.put(p);
+  await tx.done;
+}
+export async function deleteProgrammesForPlaylist(playlistId: string): Promise<void> {
+  const d = await db();
+  const all = (await d.getAll('programmes')) as unknown as EpgProgramme[];
+  const tx = d.transaction('programmes', 'readwrite');
+  for (const p of all) if (p.playlistId === playlistId) await tx.store.delete(p.id);
   await tx.done;
 }
 export async function putFavourite(f: Favourite): Promise<void> { await (await db()).put('favourites', f); }

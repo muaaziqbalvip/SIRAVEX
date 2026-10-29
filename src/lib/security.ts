@@ -32,6 +32,24 @@ export function validatePlaylistFile(file: File): string | null {
   if (!/\.(m3u|m3u8|txt)$/.test(name)) return 'Unsupported file type. Choose an .m3u or .m3u8 playlist file.';
   return null;
 }
+/**
+ * Xtream-style servers serve the SAME stream as .ts or .m3u8 — browsers need the HLS variant.
+ * Rewriting `/live|movie|series/<user>/<pass>/<id>.ts` -> `.m3u8` is the provider's own
+ * documented HLS output (what output=m3u8 does), not a bypass. Generic .ts stays unsupported.
+ */
+export function normalizeStreamUrl(raw: string): string {
+  const clean = sanitizeUrl(raw);
+  if (!clean) return raw;
+  try {
+    const u = new URL(clean);
+    if (/\.ts$/i.test(u.pathname) && /^\/(live|movie|series)\//i.test(u.pathname)) {
+      u.pathname = u.pathname.replace(/\.ts$/i, '.m3u8');
+      return u.toString();
+    }
+  } catch { /* keep original */ }
+  return clean;
+}
+
 export function classifyFormat(url: string): 'hls' | 'dash' | 'native' | 'unsupported' {
   const clean = url.split('?')[0].toLowerCase();
   if (clean.endsWith('.m3u8')) return 'hls';

@@ -13,7 +13,7 @@ export interface PlayerSnapshot {
   qualities: QualityOption[]; qualityId: string; currentQualityLabel: string;
   audioTracks: TrackOption[]; audioId: string; audioLabel: string;
   subtitleTracks: TrackOption[]; subtitleId: string;
-  resolution: string; bitrateKbps: number; droppedFrames: number;
+  resolution: string; bitrateKbps: number; droppedFrames: number; totalFrames: number; behindLiveSec: number;
   error: PlaybackErrorInfo | null; engine: string; format: string;
 }
 
@@ -40,7 +40,7 @@ export class PlaybackEngine {
   private listeners = new Set<Listener>();
   private bound: [string, EventListener][] = [];
   private destroyed = false;
-  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, error: null, engine: 'none', format: 'none' };
+  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none' };
   currentUrl = '';
 
   constructor(video: HTMLVideoElement) {
@@ -71,8 +71,8 @@ export class PlaybackEngine {
     try { seekable = v.seekable.length > 0 && v.seekable.end(0) - v.seekable.start(0) > 1; } catch { seekable = false; }
     let bufferedEnd = 0;
     try { if (v.buffered.length) bufferedEnd = v.buffered.end(v.buffered.length - 1); } catch { /* noop */ }
-    let droppedFrames = this.snap.droppedFrames;
-    try { const q = (v as HTMLVideoElement & { getVideoPlaybackQuality?: () => { droppedVideoFrames: number } }).getVideoPlaybackQuality?.(); if (q) droppedFrames = q.droppedVideoFrames; } catch { /* noop */ }
+    let droppedFrames = this.snap.droppedFrames; let totalFrames = this.snap.totalFrames;
+    try { const q = (v as HTMLVideoElement & { getVideoPlaybackQuality?: () => { droppedVideoFrames: number; totalVideoFrames: number } }).getVideoPlaybackQuality?.(); if (q) { droppedFrames = q.droppedVideoFrames; totalFrames = q.totalVideoFrames; } } catch { /* noop */ }
     const subs: TrackOption[] = [{ id: 'off', label: 'Off' }];
     const seen = new Set<string>();
     for (let i = 0; i < v.textTracks.length; i++) {
@@ -83,9 +83,11 @@ export class PlaybackEngine {
       subs.push({ id: String(i), label, lang: t.language });
     }
     const subtitleTracks = subs.length > 1 ? subs : (this.snap.subtitleTracks.length > 1 ? this.snap.subtitleTracks : subs);
+    let behindLiveSec = 0;
+    try { if (v.seekable.length) behindLiveSec = Math.max(0, v.seekable.end(v.seekable.length - 1) - (v.currentTime || 0)); } catch { /* noop */ }
     this.set({
-      currentTime: v.currentTime || 0, duration: Number.isFinite(v.duration) ? v.duration : 0, live, seekable,
-      muted: v.muted, volume: v.volume, rate: v.playbackRate, bufferedEnd, droppedFrames, subtitleTracks,
+      currentTime: v.currentTime || 0, duration: Number.isFinite(v.duration) ? v.duration : 0, live, seekable, behindLiveSec,
+      muted: v.muted, volume: v.volume, rate: v.playbackRate, bufferedEnd, droppedFrames, totalFrames, subtitleTracks,
       resolution: v.videoWidth ? `${v.videoWidth}×${v.videoHeight}` : this.snap.resolution,
     });
   }
@@ -111,7 +113,9 @@ export class PlaybackEngine {
       else if (format === 'mpegts' || format === 'flv') await this.loadTs(url, format);
       else { this.video.preload = 'auto'; this.video.src = url; this.video.load(); }
     } catch (e) {
-      this.set({ state: 'error', error: mapPlaybackError({ message: e instanceof Error ? e.message : 'network', url }) });
+      const errObj = e as { code?: number; message?: string } | null;
+      const shakaCode = typeof errObj?.code === 'number' ? errObj.code : undefined;
+      this.set({ state: 'error', error: mapPlaybackError({ shakaCode, message: e instanceof Error ? e.message : errObj?.message, url }) });
     }
   }
 
@@ -123,7 +127,7 @@ export class PlaybackEngine {
     this.hls = hls;
     const syncTracks = () => {
       if (!this.hls) return;
-      const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }, ...hls.levels.map((l, i) => ({ id: String(i), label: l.height ? `${l.height}p` : `Level ${i + 1}`, height: l.height, bitrate: l.bitrate }))];
+      const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }, ...hls.levels.map((l, i) => ({ id: String(i), label: `${l.height ? `${l.height}p` : `Level ${i + 1}`}${l.bitrate ? ` · ${Math.round(l.bitrate / 1000)}k` : ''}`, height: l.height, bitrate: l.bitrate }))];
       const audioTracks: TrackOption[] = (hls.audioTracks ?? []).map((t, i) => ({ id: String(i), label: t.name || t.lang || `Audio ${i + 1}`, lang: t.lang }));
       const subtitleTracks: TrackOption[] = [{ id: 'off', label: 'Off' }, ...(hls.subtitleTracks ?? []).map((t, i) => ({ id: `hls-${i}`, label: t.name || t.lang || `Subtitle ${i + 1}`, lang: t.lang }))];
       const audioLabel = audioTracks.find((t) => t.id === String(hls.audioTrack))?.label ?? this.snap.audioLabel;
@@ -142,7 +146,7 @@ export class PlaybackEngine {
       if (!data.fatal) { if (data.details === HlsCtor.ErrorDetails.BUFFER_STALLED_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); } return; }
       if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) { networkRecoveries++; hls.startLoad(); return; }
       if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); return; }
-      this.set({ state: 'error', error: mapPlaybackError({ message: data.details, url }) });
+      this.set({ state: 'error', error: mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }) });
     });
     hls.attachMedia(this.video);
     hls.on(HlsCtor.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
@@ -166,7 +170,7 @@ export class PlaybackEngine {
         const variants = (player.getVariantTracks() as { id: number; height?: number; bandwidth?: number; active: boolean; audioLanguage?: string }[]) ?? [];
         const seen = new Set<number>();
         const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }];
-        for (const v of variants) { if (v.height && !seen.has(v.height)) { seen.add(v.height); qualities.push({ id: `h-${v.height}`, label: `${v.height}p`, height: v.height, bitrate: v.bandwidth }); } }
+        for (const v of variants) { if (v.height && !seen.has(v.height)) { seen.add(v.height); qualities.push({ id: `h-${v.height}`, label: `${v.height}p${v.bandwidth ? ` · ${Math.round(v.bandwidth / 1000)}k` : ''}`, height: v.height, bitrate: v.bandwidth }); } }
         qualities.sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
         const langs = (player.getAudioLanguagesAndRoles?.() as { language: string }[] | string[]) ?? [];
         const audioTracks: TrackOption[] = [];
@@ -185,7 +189,11 @@ export class PlaybackEngine {
     player.addEventListener('variantchanged', syncDash);
     player.addEventListener('trackschanged', syncDash);
     player.addEventListener('adaptation', syncDash);
-    player.addEventListener('error', () => { this.set({ state: 'error', error: mapPlaybackError({ message: 'network', url }) }); });
+    player.addEventListener('error', (ev: Event) => {
+      const detail = (ev as CustomEvent<{ code?: number; message?: string }>).detail;
+      const code = typeof detail?.code === 'number' ? detail.code : undefined;
+      this.set({ state: 'error', error: mapPlaybackError({ shakaCode: code, message: detail?.message, url }) });
+    });
     await player.load(url);
     syncDash();
   }
@@ -212,6 +220,21 @@ export class PlaybackEngine {
   togglePlay(): void { this.video.paused ? this.play() : this.pause(); }
   seek(t: number): void { if (this.snap.seekable) { try { this.video.currentTime = Math.max(0, t); } catch { /* live edge */ } } }
   seekBy(delta: number): void { if (this.snap.seekable) this.seek(this.video.currentTime + delta); else if (this.tsPlayer) { try { this.video.currentTime = Math.max(0, this.video.currentTime + delta); } catch { /* live TS edge */ } } }
+  /** Jump to the live edge for DVR-capable live streams. */
+  goLive(): void {
+    try {
+      const v = this.video;
+      if (v.seekable.length) { v.currentTime = v.seekable.end(v.seekable.length - 1); return; }
+      if (v.buffered.length) v.currentTime = v.buffered.end(v.buffered.length - 1);
+    } catch { /* noop */ }
+  }
+  behindLiveEdgeSec(): number {
+    try {
+      const v = this.video;
+      if (!v.seekable.length) return 0;
+      return Math.max(0, v.seekable.end(v.seekable.length - 1) - v.currentTime);
+    } catch { return 0; }
+  }
   setVolume(v: number): void { this.video.volume = Math.min(1, Math.max(0, v)); if (v > 0) this.video.muted = false; this.emit(); }
   toggleMute(): void { this.video.muted = !this.video.muted; this.emit(); }
   setRate(r: number): void { this.video.playbackRate = r; this.emit(); }

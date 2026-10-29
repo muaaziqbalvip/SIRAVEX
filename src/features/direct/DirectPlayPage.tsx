@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Radio } from 'lucide-react';
 import { Button, Card, Input, Select } from '@/components/ui/ui';
@@ -14,7 +14,8 @@ const FORMATS = [
 ] as const;
 
 export function DirectPlayPage() {
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(() => { try { return sessionStorage.getItem('siravex-direct-prefill') ?? ''; } catch { return ''; } });
+  useEffect(() => { try { sessionStorage.removeItem('siravex-direct-prefill'); } catch { /* ignore */ } }, []);
   const [format, setFormat] = useState<string>('auto');
   const [clearKey, setClearKey] = useState('');
   const [licenseUrl, setLicenseUrl] = useState('');

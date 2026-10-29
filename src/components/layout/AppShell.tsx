@@ -31,6 +31,7 @@ export function AppShell() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [installEvt, setInstallEvt] = useState<Event | null>(null);
+  const [installDismissed, setInstallDismissed] = useState(() => { try { return sessionStorage.getItem('siravex-install-dismissed') === '1'; } catch { return false; } });
   const [swUpdate, setSwUpdate] = useState(false);
   useEffect(() => {
     const on = () => setOnline(true); const off = () => setOnline(false);
@@ -67,7 +68,7 @@ export function AppShell() {
             <span className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs md:inline-flex ${online ? 'border-emerald-500/40 text-emerald-300' : 'border-amber-500/40 text-amber-300'}`} role="status"><span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-400' : 'bg-amber-400'}`} />{online ? 'Online' : 'Offline'}</span>
           </div>
           {!online && <div className="bg-amber-950/60 px-4 py-2 text-center text-xs text-amber-200" role="alert">You are offline. Cached app screens remain available; live streams need a connection.</div>}
-          {installEvt && <div className="flex flex-wrap items-center justify-center gap-2 bg-sky-950/70 px-4 py-2 text-sm"><span>Install SIRAVEX for an app-like experience.</span><Button onClick={async () => { const ev = installEvt as unknown as { prompt(): Promise<void> }; await ev.prompt(); setInstallEvt(null); }}>Install app</Button><Button variant="ghost" onClick={() => setInstallEvt(null)}>Not now</Button></div>}
+          {installEvt && !installDismissed && <div className="flex items-center gap-2 bg-sky-950/90 px-3 py-1.5 text-xs sm:justify-center sm:text-sm" role="region" aria-label="Install SIRAVEX"><img src="/icons/logo-256.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0 rounded-md" /><span className="min-w-0 flex-1 truncate sm:flex-none">Install SIRAVEX — fast, app-like.</span><Button className="min-h-[36px] shrink-0 px-3 py-1 text-xs" onClick={async () => { const ev = installEvt as unknown as { prompt(): Promise<void> }; await ev.prompt(); setInstallEvt(null); }}>Install</Button><button type="button" aria-label="Dismiss install prompt" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10" onClick={() => { setInstallDismissed(true); try { sessionStorage.setItem('siravex-install-dismissed', '1'); } catch { /* ignore */ } }}>✕</button></div>}
           {swUpdate && <div className="flex flex-wrap items-center justify-center gap-2 bg-violet-950/70 px-4 py-2 text-sm"><span>A new version of SIRAVEX is ready.</span><Button onClick={() => window.dispatchEvent(new Event('siravex-sw-update-accepted'))}>Refresh to update</Button></div>}
         </header>
         <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}><Outlet /></main>

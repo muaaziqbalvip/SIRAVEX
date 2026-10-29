@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { CalendarDays, CircleHelp, Film, Heart, History, Home, LayoutGrid, ListVideo, MonitorPlay, Radio, Search, Settings, Stethoscope, Tv, X } from 'lucide-react';
+import { CalendarDays, CircleHelp, Film, Heart, History, Home, LayoutGrid, ListVideo, LogIn, MonitorPlay, Newspaper, Radio, Search, Settings, ShieldCheck, Stethoscope, Tv, X } from 'lucide-react';
 import { Button, Logo } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
+import { useAuth } from '@/services/firebase/AuthContext';
+import { fetchAnnouncement, type Announcement } from '@/services/firebase/tracking';
+import { consumeVersionChange } from '@/lib/update';
+import { APP_VERSION } from '@/lib/version';
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home },
@@ -17,6 +21,7 @@ const NAV = [
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/diagnostics', label: 'Diagnostics', icon: Stethoscope },
   { to: '/help', label: 'Help & About', icon: CircleHelp },
+  { to: '/blog', label: 'Blog', icon: Newspaper },
 ];
 const MOBILE_MAIN = NAV.slice(0, 4);
 
@@ -26,7 +31,9 @@ function linkCls({ isActive }: { isActive: boolean }): string {
 
 export function AppShell() {
   const navigate = useNavigate();
-  const { playlists, items, toasts, dismissToast, settings } = useStore();
+  const { playlists, items, toasts, dismissToast, settings, toast } = useStore();
+  const { user, isAdmin } = useAuth();
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [q, setQ] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
@@ -40,7 +47,13 @@ export function AppShell() {
     window.addEventListener('beforeinstallprompt', bip);
     const upd = () => setSwUpdate(true);
     window.addEventListener('siravex-sw-update', upd);
-    if (settings.defaultHome && settings.defaultHome !== '/' && window.location.hash === '#/') navigate(settings.defaultHome, { replace: true });
+    if (settings.defaultHome && settings.defaultHome !== '/' && window.location.pathname === '/') navigate(settings.defaultHome, { replace: true });
+    if (consumeVersionChange()) toast({ tone: 'success', title: `SIRAVEX v${APP_VERSION} par update ho gaya`, body: 'Purana cache saaf kar diya gaya hai — nayi features live hain.' });
+    void fetchAnnouncement().then((a) => {
+      if (!a) return;
+      try { if (sessionStorage.getItem('siravex-ann-dismissed') === `${a.title}|${a.version ?? ''}`) return; } catch { /* ignore */ }
+      setAnnouncement(a);
+    });
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', bip); window.removeEventListener('siravex-sw-update', upd); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -66,10 +79,20 @@ export function AppShell() {
               <Button type="submit" className="hidden min-h-[42px] sm:inline-flex">Search</Button>
             </form>
             <span className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs md:inline-flex ${online ? 'border-emerald-500/40 text-emerald-300' : 'border-amber-500/40 text-amber-300'}`} role="status"><span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-400' : 'bg-amber-400'}`} />{online ? 'Online' : 'Offline'}</span>
+            {isAdmin && <button type="button" onClick={() => navigate('/admin')} aria-label="Admin dashboard" className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full border border-violet-500/50 text-violet-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ShieldCheck size={19} /></button>}
+            {user ? (
+              <button type="button" onClick={() => navigate('/login')} aria-label="My account" className="flex shrink-0 items-center gap-2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
+                {user.photoURL ? <img src={user.photoURL} alt="" width={38} height={38} className="h-[38px] w-[38px] rounded-full border border-border" /> : <span className="grid h-[38px] w-[38px] place-items-center rounded-full bg-sky-500 text-sm font-extrabold text-white">{(user.displayName || user.email || 'S').slice(0, 1).toUpperCase()}</span>}
+                <span className="hidden max-w-[110px] truncate text-left text-xs font-semibold xl:block">{user.displayName || 'Account'}</span>
+              </button>
+            ) : (
+              <Button className="min-h-[42px] shrink-0 px-3.5" onClick={() => navigate('/login')}><LogIn size={16} aria-hidden /><span className="hidden sm:inline">Login</span></Button>
+            )}
           </div>
           {!online && <div className="bg-amber-950/60 px-4 py-2 text-center text-xs text-amber-200" role="alert">You are offline. Cached app screens remain available; live streams need a connection.</div>}
           {installEvt && !installDismissed && <div className="flex items-center gap-2 bg-sky-950/90 px-3 py-1.5 text-xs sm:justify-center sm:text-sm" role="region" aria-label="Install SIRAVEX"><img src="/icons/logo-256.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0 rounded-md" /><span className="min-w-0 flex-1 truncate sm:flex-none">Install SIRAVEX — fast, app-like.</span><Button className="min-h-[36px] shrink-0 px-3 py-1 text-xs" onClick={async () => { const ev = installEvt as unknown as { prompt(): Promise<void> }; await ev.prompt(); setInstallEvt(null); }}>Install</Button><button type="button" aria-label="Dismiss install prompt" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10" onClick={() => { setInstallDismissed(true); try { sessionStorage.setItem('siravex-install-dismissed', '1'); } catch { /* ignore */ } }}>✕</button></div>}
           {swUpdate && <div className="flex flex-wrap items-center justify-center gap-2 bg-violet-950/70 px-4 py-2 text-sm"><span>A new version of SIRAVEX is ready.</span><Button onClick={() => window.dispatchEvent(new Event('siravex-sw-update-accepted'))}>Refresh to update</Button></div>}
+          {announcement && <div className="flex items-center gap-2 bg-emerald-950/80 px-3 py-2 text-xs sm:justify-center sm:text-sm" role="region" aria-label="Announcement"><span className="min-w-0 flex-1 sm:flex-none"><strong>{announcement.title}</strong>{announcement.body ? <span className="text-silver/85"> — {announcement.body}</span> : null}</span><button type="button" aria-label="Dismiss announcement" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/70 hover:bg-white/10" onClick={() => { setAnnouncement(null); try { sessionStorage.setItem('siravex-ann-dismissed', `${announcement.title}|${announcement.version ?? ''}`); } catch { /* ignore */ } }}>✕</button></div>}
         </header>
         <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}><Outlet /></main>
       </div>

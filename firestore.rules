@@ -1,0 +1,36 @@
+rules_version = '2';
+// SIRAVEX Firestore Security Rules — INHEIN DEPLOY KARNA ZAROORI HAI:
+// Firebase Console → Firestore Database → Rules → ye paste karke Publish,
+// ya CLI: firebase deploy --only firestore:rules
+// Bina rules ke admin panel users nahi parh sakega (by design — privacy).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email in [
+        'muaaziqbal.vip@gmail.com' // <-- apna admin email yahan bhi rakhein (firebase.ts ADMIN_EMAILS se match)
+      ];
+    }
+
+    // Har user apni profile/presence khud likhta hai; parhna sirf khud ya admin.
+    match /users/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow create, update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if isAdmin();
+    }
+
+    // Watch events: login user apne naam par banata hai; parhna sirf admin.
+    match /events/{eventId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // Announcements: sab parh sakte hain (banner), likhna sirf admin.
+    match /announcements/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

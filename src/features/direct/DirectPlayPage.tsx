@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Play, Radio } from 'lucide-react';
 import { Button, Card, Input, Select } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
+import { MzAdSlot } from '@/components/ads/MzAdSlot';
 import { formatOf } from '@/playback/capabilities/capabilities';
 import { redactUrl, sanitizeUrl } from '@/lib/security';
 import { parseClearKeys } from '@/lib/clearkey';
@@ -84,6 +85,7 @@ export function DirectPlayPage() {
 
       {item && playing ? (
         <div key={playing.at}><PlayerShell item={item} loadOpts={playing.opts} />
+          <MzAdSlot slot="banner" placement="player" className="mt-4" />
           <p className="mt-3 text-xs leading-5 text-muted">Source host: <strong className="text-silver">{redactUrl(playing.url)}</strong> · Poora private link kahin save/log nahi hua. Agar format ghalat detect ho to upar se format chip badal kar dobara Play karein.</p>
         </div>
       ) : (

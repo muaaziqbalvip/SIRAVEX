@@ -4,9 +4,9 @@ import { AlertTriangle, Inbox } from 'lucide-react';
 
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
-    <span className="flex items-center gap-2" aria-label="SIRAVEX">
-      <svg width="34" height="34" viewBox="0 0 64 64" role="img" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0a1122"/><path d="M42 14c-10-4-22 2-22 12 0 7 6 9 11 11s9 4 9 8c0 5-7 8-14 5" fill="none" stroke="#38bdf8" strokeWidth="5" strokeLinecap="round"/><path d="M28 24l14 8-14 8z" fill="#22d3ee"/></svg>
-      {!compact && <span className="leading-none"><span className="block font-extrabold tracking-[0.22em] text-silver">SIRAVEX</span><span className="mt-0.5 block text-[10px] tracking-[0.3em] text-muted">IPTV PLAYER</span></span>}
+    <span className="flex items-center gap-2.5" aria-label="SIRAVEX">
+      <img src="/icons/logo-256.png" alt="" width={38} height={38} className="h-[38px] w-[38px] shrink-0 rounded-[11px] shadow-glow" decoding="async" />
+      {!compact && <span className="leading-none"><span className="block font-extrabold tracking-[0.22em] text-silver">SIRAVEX</span><span className="mt-1 block text-[10px] font-semibold tracking-[0.3em] text-cyanx">IPTV PLAYER</span></span>}
     </span>
   );
 }

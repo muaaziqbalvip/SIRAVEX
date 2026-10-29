@@ -21,3 +21,13 @@ html:not(.dark) .text-muted { color: #4a607e !important; }
 html:not(.dark) .border-border { border-color: #c9d6ea !important; }
 [data-density="compact"] main { font-size: 0.92rem; }
 input[type="range"] { cursor: pointer; }
+/* Horizontal OTT rows: scrollable, no visible scrollbar, no page-level overflow */
+.scroll-row { scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.scroll-row::-webkit-scrollbar { display: none; }
+.chips-row { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.chips-row::-webkit-scrollbar { display: none; }
+/* Stable video: never taller than the viewport fold on small screens */
+video { max-height: 100%; }
+@keyframes svx-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+main > div { animation: svx-fade-up .28s ease both; }
+body.reduce-motion main > div { animation: none; }

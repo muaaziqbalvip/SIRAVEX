@@ -1,5 +1,10 @@
 import type { MediaItem, ParsedPlaylist } from '@/types/models';
-import { detectKindFromUrl, sanitizeUrl } from '@/lib/security';
+import { detectKindFromUrl, normalizeStreamUrl, sanitizeUrl } from '@/lib/security';
+
+export function extractYear(title: string): number | undefined {
+  const m = title.match(/\b(19[5-9]\d|20[0-4]\d)\b/);
+  return m ? Number(m[1]) : undefined;
+}
 
 function parseAttrs(line: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -14,8 +19,8 @@ function classify(title: string, group: string, url: string): MediaItem['kind'] 
   if (fromUrl === 'movie') return 'movie';
   if (fromUrl === 'series-episode') return 'series';
   const g = `${group} ${title}`.toLowerCase();
-  if (/\b(movie|movies|vod|film|cine)\b/.test(g)) return 'movie';
-  if (/\b(series|serial|season|episode)\b/.test(g) || /s\d{1,2}e\d{1,3}/i.test(title)) return 'series';
+  if (/(movie|movies|vod|film|films|cine|cinema|box ?office)/.test(g)) return 'movie';
+  if (/(series|serial|season|episode|seasons|episodes)/.test(g) || /s\d{1,2}[\s._-]*e\d{1,3}/i.test(title)) return 'series';
   return 'live';
 }
 
@@ -46,10 +51,12 @@ export function parseM3U(text: string): ParsedPlaylist {
       pending = { title: title || 'Untitled channel', attrs: parseAttrs(line) };
       continue;
     }
-    if (line.startsWith('#')) continue; // EXTGRP, EXTVLCOPT etc are ignored safely
-    // URL line
-    const url = sanitizeUrl(line);
-    if (!url) { warnings.push(`Line ${i + 1}: invalid or unsupported stream URL skipped.`); pending = null; continue; }
+    if (line.startsWith('#EXTGRP:')) { if (pending) pending.attrs['group-title'] = line.slice('#EXTGRP:'.length).trim(); continue; }
+    if (line.startsWith('#')) continue; // EXTVLCOPT etc are ignored safely
+    // URL line — Xtream .ts URLs are normalized to the provider's own HLS (.m3u8) output.
+    const rawUrl = sanitizeUrl(line);
+    if (!rawUrl) { warnings.push(`Line ${i + 1}: invalid or unsupported stream URL skipped.`); pending = null; continue; }
+    const url = normalizeStreamUrl(rawUrl);
     if (!pending) { warnings.push(`Line ${i + 1}: stream URL without #EXTINF metadata; imported as untitled.`); pending = { title: 'Untitled channel', attrs: {} }; total++; }
     const group = pending.attrs['group-title'] || '';
     const kind = classify(pending.title, group, url);
@@ -60,6 +67,7 @@ export function parseM3U(text: string): ParsedPlaylist {
       poster: kind !== 'live' && pending.attrs['tvg-logo'] ? sanitizeUrl(pending.attrs['tvg-logo']) ?? undefined : undefined,
       group: group || (kind === 'live' ? 'Live TV' : kind === 'movie' ? 'Movies' : 'Series'),
       tvgId: pending.attrs['tvg-id'] || undefined,
+      year: extractYear(pending.title),
       ...sp,
     });
     pending = null;

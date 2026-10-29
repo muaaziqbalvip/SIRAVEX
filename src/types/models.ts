@@ -8,12 +8,15 @@ export interface PlaylistSource {
   url?: string; // never log in full; may contain credentials for xtream-derived urls
   server?: string;
   username?: string;
+  /** Password is stored ONLY when the user explicitly opts in ("remember on this device"). Never logged/exported. */
+  password?: string;
   hasPassword?: boolean;
   enabled: boolean;
   isDefault: boolean;
   itemCount: number;
   createdAt: number;
   lastImportedAt?: number;
+  lastEpgAt?: number;
   lastError?: string;
 }
 
@@ -25,9 +28,17 @@ export interface MediaItem {
   url: string;
   logo?: string;
   poster?: string;
+  backdrop?: string;
   group: string;
   tvgId?: string;
+  /** Xtream stream id (used for short-EPG lookups). */
+  streamId?: string;
+  /** Xtream series id when this item is a series placeholder whose episodes load on demand. */
+  seriesId?: string;
+  episodesLoaded?: boolean;
   year?: number;
+  rating?: number;
+  durationLabel?: string;
   genre?: string;
   description?: string;
   seriesTitle?: string;
@@ -37,6 +48,7 @@ export interface MediaItem {
 
 export interface EpgProgramme {
   id: string;
+  playlistId?: string;
   channelId: string;
   title: string;
   description?: string;

@@ -17,6 +17,7 @@ const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then(
 const DiagnosticsPage = lazy(() => import('@/features/diagnostics/DiagnosticsPage').then((m) => ({ default: m.DiagnosticsPage })));
 const HelpPage = lazy(() => import('@/features/help/HelpPage').then((m) => ({ default: m.HelpPage })));
 const PlayerPage = lazy(() => import('@/features/player/PlayerPage').then((m) => ({ default: m.PlayerPage })));
+const DirectPlayPage = lazy(() => import('@/features/direct/DirectPlayPage').then((m) => ({ default: m.DirectPlayPage })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -49,6 +50,7 @@ export function App() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="diagnostics" element={<DiagnosticsPage />} />
             <Route path="help" element={<HelpPage />} />
+            <Route path="direct" element={<DirectPlayPage />} />
             <Route path="player/:id" element={<PlayerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

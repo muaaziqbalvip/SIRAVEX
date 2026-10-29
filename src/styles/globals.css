@@ -5,7 +5,10 @@
 :root { --svx-accent: #0ea5e9; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
-html, body { overflow-x: hidden; }
+html, body { overflow-x: clip; max-width: 100%; }
+#root { min-width: 0; }
+img, video, svg { max-width: 100%; }
+.break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
 body { margin: 0; background: #050816; color: #e6edf7; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
@@ -31,3 +34,8 @@ video { max-height: 100%; }
 @keyframes svx-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 main > div { animation: svx-fade-up .28s ease both; }
 body.reduce-motion main > div { animation: none; }
+/* Thin premium scrollbars (sidebar / panels) */
+.nice-scroll { scrollbar-width: thin; scrollbar-color: #1e3a5f transparent; }
+.nice-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.nice-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
+.nice-scroll::-webkit-scrollbar-track { background: transparent; }

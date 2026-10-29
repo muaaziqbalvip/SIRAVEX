@@ -3,6 +3,7 @@ import { Copy } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card } from '@/components/ui/ui';
 import { detectCapabilities } from '@/playback/capabilities/capabilities';
+import { APP_VERSION, APP_BUILD } from '@/lib/version';
 import { estimateStorage } from '@/services/storage/db';
 
 export function DiagnosticsPage() {
@@ -17,7 +18,7 @@ export function DiagnosticsPage() {
   }, []);
   const report = [
     `SIRAVEX diagnostics — ${new Date().toISOString()}`,
-    `App version: 1.0.0 (build SIRAVEX-001)`,
+    `App version: ${APP_VERSION} (build ${APP_BUILD})`,
     `User agent: ${navigator.userAgent}`,
     `Online: ${navigator.onLine}`,
     `Capabilities: ${JSON.stringify(caps)}`,

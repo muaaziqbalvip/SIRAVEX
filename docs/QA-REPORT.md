@@ -63,3 +63,8 @@ Root causes found & fixed:
 
 Verification: `npm run typecheck` ✅ · `npm test` ✅ 26/26 (new xtream suite: server normalize, HLS URL building, base64 UTF-8, .ts→.m3u8, year extraction) · `npm run build` ✅ (manifest with new icons, sw.js generated).
 Still manual: real-provider Xtream login + EPG on a user account (no credentials available in this sandbox), real-device PWA install, physical-device playback/codec check.
+
+## v2.0 — Layout overhaul + Universal Engine (user screenshots + reference-player parity)
+
+Screenshot-driven layout repairs: provider titles/groups are display-cleaned (VIP tags, crowns, WhatsApp/contact spam stripped — stored data untouched) so long unbroken strings can no longer push cards off-screen; hero title/description clamp with anywhere-wrapping; every grid/flex root carries min-w-0 + w-full + max-w-full; Live/Movies chips are a single scroll rail on all sizes (no 3-row wrap on desktop); sidebar got a thin custom scrollbar; html/body use overflow-x: clip. New: **Play Any Stream** page (auto-detect + forced format, tokenized `render.mpd?auth=…&q=auto` DASH links, optional provider ClearKey/Widevine config, recent hosts redacted). Engine v3 adds **mpegts.js** (MPEG-TS + FLV, lazy 272 kB chunk), Shaka stats (resolution, real bitrate kbps, audio language, dropped frames via getVideoPlaybackQuality), FIT/FILL, snapshot (CORS-permitting), share-title (never shares private URLs), -10s/+10s. Version bumped to 2.0.0 with badge README.
+Verification: typecheck ✅ · tests 33/33 ✅ (incl. tokenized-MPD detection + title cleaning) · production build ✅ (37 precache entries). Auth-token stream itself was never fetched, stored or logged during development — only its URL *shape* was tested with a synthetic host.

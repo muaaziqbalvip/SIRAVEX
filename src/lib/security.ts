@@ -50,13 +50,16 @@ export function normalizeStreamUrl(raw: string): string {
   return clean;
 }
 
-export function classifyFormat(url: string): 'hls' | 'dash' | 'native' | 'unsupported' {
-  const clean = url.split('?')[0].toLowerCase();
+export function classifyFormat(url: string): 'hls' | 'dash' | 'mpegts' | 'flv' | 'native' | 'unsupported' {
+  let path = url;
+  try { path = new URL(url).pathname; } catch { path = url.split('?')[0]; }
+  const clean = path.toLowerCase();
   if (clean.endsWith('.m3u8')) return 'hls';
   if (clean.endsWith('.mpd')) return 'dash';
-  if (/\.(mp4|webm|mov|m4v|mp3|aac|ogg|opus)$/.test(clean)) return 'native';
+  if (clean.endsWith('.ts')) return 'mpegts';
+  if (clean.endsWith('.flv')) return 'flv';
+  if (/\.(mp4|webm|mov|m4v|mkv|mp3|aac|ogg|opus)$/.test(clean)) return 'native';
   if (/^(rtsp|rtmp|udp|mmsh?):\/\//i.test(url)) return 'unsupported';
-  if (clean.endsWith('.ts')) return 'unsupported';
   return 'native';
 }
 export function downloadJson(filename: string, data: unknown): void {

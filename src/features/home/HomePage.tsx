@@ -4,6 +4,7 @@ import { ChevronRight, Film, ListVideo, Play, Tv } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { ChannelCard, MediaCard, SafeImage } from '@/components/media/MediaCard';
+import { cleanTitle } from '@/lib/display';
 
 function RowHeader({ title, to }: { title: string; to: string }) {
   return <div className="mb-2.5 flex items-center justify-between px-0.5"><h2 className="text-base font-extrabold tracking-tight sm:text-lg">{title}</h2><Link to={to} className="inline-flex min-h-[36px] items-center gap-0.5 rounded-full px-2 text-[13px] font-semibold text-cyanx hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">View All<ChevronRight size={15} aria-hidden /></Link></div>;
@@ -67,14 +68,14 @@ export function HomePage() {
   const hero = heroes[Math.min(heroIdx, heroes.length - 1)];
   const heroProgress = hero ? progress.find((p) => p.itemId === hero.id) : undefined;
   return (
-    <div className="grid gap-7">
+    <div className="grid w-full min-w-0 max-w-full gap-6 sm:gap-7">
       {hero && (
         <section className="relative overflow-hidden rounded-3xl border border-border bg-panel" aria-label="Featured" key={hero.id}>
           <div className="absolute inset-0"><SafeImage src={hero.backdrop || hero.poster || hero.logo} title={hero.title} className="h-full w-full opacity-40" /></div>
-          <div className="relative flex min-h-[240px] flex-col justify-end bg-gradient-to-t from-ink via-ink/75 to-transparent p-5 sm:min-h-[320px] sm:p-8">
+          <div className="relative flex min-h-[240px] w-full min-w-0 flex-col justify-end bg-gradient-to-t from-ink via-ink/75 to-transparent p-4 sm:min-h-[320px] sm:p-8">
             <p className="text-[11px] font-extrabold tracking-[0.3em] text-cyanx">{heroProgress && !heroProgress.completed ? 'CONTINUE WATCHING' : hero.kind === 'live' ? 'LIVE TV' : hero.kind.toUpperCase()}</p>
-            <h1 className="mt-2 max-w-2xl text-2xl font-extrabold leading-tight sm:text-4xl">{hero.title}</h1>
-            <p className="mt-1.5 line-clamp-2 max-w-xl text-[13px] leading-5 text-silver/75">{hero.description || `${hero.group}${hero.year ? ` · ${hero.year}` : ''} — playback uses only the format your source actually provides.`}</p>
+            <h1 className="break-anywhere line-clamp-3 mt-2 w-full min-w-0 max-w-2xl text-[26px] font-extrabold leading-[1.15] sm:text-4xl" title={hero.title}>{cleanTitle(hero.title)}{hero.rating ? <span className="ml-2 align-middle text-[0.55em] font-bold text-amber-300">★ {hero.rating.toFixed(1)}</span> : null}</h1>
+            <p className="break-anywhere line-clamp-2 mt-1.5 w-full min-w-0 max-w-xl text-[13px] leading-5 text-silver/75">{cleanTitle(hero.description || `${hero.group}${hero.year ? ` · ${hero.year}` : ''}`)}</p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link to={`/player/${encodeURIComponent(hero.id)}`}><Button><Play size={18} aria-hidden />{heroProgress && !heroProgress.completed ? 'Resume' : 'Watch Now'}</Button></Link>
               {heroes.length > 1 && <span className="ml-1 flex gap-1.5" role="tablist" aria-label="Featured items">{heroes.map((h, i) => <button key={h.id} role="tab" aria-selected={i === heroIdx} aria-label={`Featured: ${h.title}`} onClick={() => setHeroIdx(i)} className={`h-2 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${i === heroIdx ? 'w-7 bg-sky-400' : 'w-2 bg-white/35 hover:bg-white/60'}`} />)}</span>}
@@ -83,21 +84,21 @@ export function HomePage() {
         </section>
       )}
 
-      <section aria-label="Shortcuts"><div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-        {([['/live', Tv, 'Live TV', `${live.length.toLocaleString()} channels`], ['/movies', Film, 'Movies', `${movies.length.toLocaleString()} titles`], ['/series', Play, 'Series', `${new Set(seriesItems.map((i) => i.seriesTitle ?? i.title)).size.toLocaleString()} shows`], ['/playlists', ListVideo, 'Playlists', `${playlists.length} source(s)`]] as const).map(([to, Icon, label, sub]) => (
-          <Link key={label} to={to} className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5 transition hover:border-sky-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-500/15 text-sky-400"><Icon size={19} aria-hidden /></span><span className="min-w-0"><span className="block truncate text-sm font-bold">{label}</span><span className="block truncate text-xs text-muted">{sub}</span></span></Link>
+      <section aria-label="Shortcuts" className="min-w-0"><div className="grid w-full min-w-0 grid-cols-2 gap-2.5 xl:grid-cols-4">
+        {([['/live', Tv, 'Live TV', `${live.length.toLocaleString()} channels`], ['/movies', Film, 'Movies', `${movies.length.toLocaleString()} titles`], ['/series', Play, 'Series', `${new Set(seriesItems.map((i) => i.seriesTitle ?? i.title)).size.toLocaleString()} shows`], ['/direct', Play, 'Play Stream', 'Any URL · MPD/HLS/TS']] as const).map(([to, Icon, label, sub]) => (
+          <Link key={label} to={to} className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-card p-3.5 transition hover:border-sky-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-500/15 text-sky-400"><Icon size={19} aria-hidden /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{label}</span><span className="block truncate text-xs text-muted">{sub}</span></span></Link>
         ))}
       </div></section>
 
-      {continueWatching.length > 0 && <section><RowHeader title="Continue Watching" to="/history" /><div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{continueWatching.map(({ p, item }) => <MediaCard key={item!.id} item={item!} progressPct={p.duration ? (p.position / p.duration) * 100 : 0} />)}</div></section>}
+      {continueWatching.length > 0 && <section className="min-w-0"><RowHeader title="Continue Watching" to="/history" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{continueWatching.map(({ p, item }) => <MediaCard key={item!.id} item={item!} progressPct={p.duration ? (p.position / p.duration) * 100 : 0} />)}</div></section>}
 
-      {live.length > 0 && <section><RowHeader title="Live TV" to="/live" /><div className="scroll-row -mx-3 flex snap-x gap-2.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">{live.slice(0, 20).map((i) => <ChannelCard key={i.id} item={i} nowTitle={i.tvgId ? nowByChannel.get(i.tvgId) : undefined} />)}</div></section>}
+      {live.length > 0 && <section className="min-w-0"><RowHeader title="Live TV" to="/live" /><div className="scroll-row -mx-3 flex snap-x gap-2.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">{live.slice(0, 20).map((i) => <ChannelCard key={i.id} item={i} nowTitle={i.tvgId ? nowByChannel.get(i.tvgId) : undefined} />)}</div></section>}
 
-      {movies.length > 0 && <section><RowHeader title="Movies" to="/movies" /><div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{movies.slice(0, 12).map((i) => <MediaCard key={i.id} item={i} />)}</div></section>}
+      {movies.length > 0 && <section className="min-w-0"><RowHeader title="Movies" to="/movies" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{movies.slice(0, 12).map((i) => <MediaCard key={i.id} item={i} />)}</div></section>}
 
-      {seriesItems.length > 0 && <section><RowHeader title="Series" to="/series" /><div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{[...new Map(seriesItems.map((i) => [i.seriesTitle ?? i.title, i])).values()].slice(0, 12).map((i) => <MediaCard key={i.id} item={{ ...i, title: i.seriesTitle ?? i.title }} />)}</div></section>}
+      {seriesItems.length > 0 && <section className="min-w-0"><RowHeader title="Series" to="/series" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{[...new Map(seriesItems.map((i) => [i.seriesTitle ?? i.title, i])).values()].slice(0, 12).map((i) => <MediaCard key={i.id} item={{ ...i, title: i.seriesTitle ?? i.title }} />)}</div></section>}
 
-      {favItems.length > 0 && <section><RowHeader title="My Favourites" to="/favourites" /><div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{favItems.map((i) => <MediaCard key={i!.id} item={i!} />)}</div></section>}
+      {favItems.length > 0 && <section className="min-w-0"><RowHeader title="My Favourites" to="/favourites" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{favItems.map((i) => <MediaCard key={i!.id} item={i!} />)}</div></section>}
 
       {visible.length === 0 && <EmptyState title="Your sources have no playable items" body="The imported playlist parsed to zero playable entries, or all sources are disabled. Xtream users: reconnect so live/movies/series lists refresh." action={<Link to="/playlists"><Button>Open Playlist Manager</Button></Link>} />}
 

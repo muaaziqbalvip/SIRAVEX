@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Gauge, Maximize, Pause, PictureInPicture2, Play, RotateCcw, Settings2, Subtitles, Volume2, VolumeX, AudioLines } from 'lucide-react';
-import { PlaybackEngine, type PlayerSnapshot } from '@/playback/engine';
+import { Camera, ChevronLeft, ChevronRight, Gauge, Maximize, Pause, PictureInPicture2, Play, RotateCcw, Settings2, Share2, Subtitles, Volume2, VolumeX, AudioLines } from 'lucide-react';
+import { PlaybackEngine, type LoadOptions, type PlayerSnapshot } from '@/playback/engine';
 import { Button, formatTime } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
 import type { MediaItem } from '@/types/models';
 
-const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', error: null, engine: 'none' };
+const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, error: null, engine: 'none', format: 'none' };
 type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'speed';
 
-export function PlayerShell({ item }: { item: MediaItem }) {
+export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: LoadOptions }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const engineRef = useRef<PlaybackEngine | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -19,6 +19,8 @@ export function PlayerShell({ item }: { item: MediaItem }) {
   const [snap, setSnap] = useState<PlayerSnapshot>(IDLE);
   const [theatre, setTheatre] = useState(false);
   const [panel, setPanel] = useState<Panel>('none');
+  const [fit, setFit] = useState<'contain' | 'cover'>('contain');
+  const [notice, setNotice] = useState('');
   const [controlsVisible, setControlsVisible] = useState(true);
   const { settings, saveProgress, logDiagnostic, programmes, items, progress } = useStore();
 
@@ -61,7 +63,7 @@ export function PlayerShell({ item }: { item: MediaItem }) {
     });
     video.volume = settings.defaultVolume;
     video.playbackRate = settings.playbackSpeed;
-    void engine.load(item.url).then(() => { if (settings.autoplay) engine.play(); });
+    void engine.load(item.url, loadOpts).then(() => { if (settings.autoplay) engine.play(); });
     poke(false);
     return () => { unsub(); engine.destroy(); engineRef.current = null; if (hideTimer.current) window.clearTimeout(hideTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,7 +108,7 @@ export function PlayerShell({ item }: { item: MediaItem }) {
     <section aria-label={`Player: ${item.title}`} className={theatre ? 'mx-auto w-full max-w-none' : ''}>
       <div ref={wrapRef} className="group/player relative select-none overflow-hidden rounded-2xl border border-border bg-black shadow-card"
         onMouseMove={() => poke(playing)} onTouchStart={() => poke(playing)}>
-        <video ref={videoRef} className="aspect-video w-full bg-black" playsInline aria-label={item.title} style={subtitleStyle}
+        <video ref={videoRef} className="aspect-video w-full bg-black" playsInline aria-label={item.title} style={{ ...subtitleStyle, objectFit: fit }}
           onClick={() => { playing ? eng()?.pause() : eng()?.play(); poke(!playing); }}
           onDoubleClick={(e) => { if (!snap.seekable) return; const r = (e.currentTarget as HTMLVideoElement).getBoundingClientRect(); eng()?.seekBy(e.clientX - r.left < r.width / 2 ? -10 : 10); }} />
         {/* Top bar */}
@@ -157,7 +159,9 @@ export function PlayerShell({ item }: { item: MediaItem }) {
           ) : null}
           <div className="mt-1 flex items-center gap-0.5 sm:gap-1.5">
             {item.kind === 'live' && <button type="button" disabled={!prevCh} onClick={() => prevCh && navigate(`/player/${encodeURIComponent(prevCh.id)}`)} aria-label={prevCh ? `Previous channel: ${prevCh.title}` : 'No previous channel'} className="grid h-10 w-9 place-items-center rounded-full text-white hover:bg-white/10 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronLeft size={21} /></button>}
+            {snap.seekable && <button type="button" onClick={() => eng()?.seekBy(-10)} aria-label="Back 10 seconds" className="hidden h-10 shrink-0 items-center rounded-full px-2 text-[11px] font-bold text-white hover:bg-white/10 min-[420px]:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">−10s</button>}
             <button type="button" onClick={() => (playing ? eng()?.pause() : eng()?.play())} aria-label={playing ? 'Pause' : 'Play'} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-sky-500 text-white shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">{playing ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}</button>
+            {snap.seekable && <button type="button" onClick={() => eng()?.seekBy(10)} aria-label="Forward 10 seconds" className="hidden h-10 shrink-0 items-center rounded-full px-2 text-[11px] font-bold text-white hover:bg-white/10 min-[420px]:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">+10s</button>}
             {item.kind === 'live' && <button type="button" disabled={!nextCh} onClick={() => nextCh && navigate(`/player/${encodeURIComponent(nextCh.id)}`)} aria-label={nextCh ? `Next channel: ${nextCh.title}` : 'No next channel'} className="grid h-10 w-9 place-items-center rounded-full text-white hover:bg-white/10 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronRight size={21} /></button>}
             <button type="button" onClick={() => eng()?.toggleMute()} aria-label={snap.muted ? 'Unmute' : 'Mute'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">{snap.muted || snap.volume === 0 ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
             <input type="range" min={0} max={1} step={0.05} value={snap.muted ? 0 : snap.volume} onChange={(e) => eng()?.setVolume(Number(e.target.value))} className="hidden w-20 accent-sky-400 md:block" aria-label="Volume" />
@@ -168,6 +172,20 @@ export function PlayerShell({ item }: { item: MediaItem }) {
             <button type="button" onClick={() => setPanel(panel === 'subs' ? 'none' : 'subs')} aria-expanded={panel === 'subs'} aria-label="Subtitles" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Subtitles size={19} /></button>
             <button type="button" onClick={() => setPanel(panel === 'speed' ? 'none' : 'speed')} aria-expanded={panel === 'speed'} aria-label="Playback speed and player options" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Settings2 size={19} /></button>
             <button type="button" onClick={async () => { try { await videoRef.current?.requestPictureInPicture(); } catch { /* unsupported */ } }} aria-label="Picture in picture" className="hidden h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx sm:grid"><PictureInPicture2 size={19} /></button>
+            <button type="button" onClick={() => setFit(fit === 'contain' ? 'cover' : 'contain')} aria-label={fit === 'contain' ? 'Fill screen (crop)' : 'Fit screen'} aria-pressed={fit === 'cover'} title="Fit / Fill" className="hidden h-10 shrink-0 items-center rounded-full px-2 text-[11px] font-bold text-white hover:bg-white/10 sm:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">{fit === 'contain' ? 'FIT' : 'FILL'}</button>
+            <button type="button" onClick={() => {
+              const v = videoRef.current; if (!v || !v.videoWidth) { setNotice('Frame abhi available nahi.'); return; }
+              try {
+                const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+                c.getContext('2d')?.drawImage(v, 0, 0);
+                const a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download = `siravex-${Date.now()}.png`; a.click();
+                setNotice('Snapshot saved.');
+              } catch { setNotice('Snapshot blocked (stream CORS) — provider ne frame capture allow nahi kiya.'); }
+            }} aria-label="Capture snapshot" className="hidden h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 sm:grid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Camera size={18} /></button>
+            <button type="button" onClick={async () => {
+              const text = `Watching “${item.title}” on SIRAVEX`;
+              try { if (navigator.share) { await navigator.share({ title: 'SIRAVEX', text }); setNotice('Shared.'); } else { await navigator.clipboard.writeText(text); setNotice('Title copied (private stream links kabhi share nahi hote).'); } } catch { /* user cancelled */ }
+            }} aria-label="Share title" className="hidden h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 sm:grid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Share2 size={18} /></button>
             <button type="button" onClick={() => void wrapRef.current?.requestFullscreen?.().catch(() => undefined)} aria-label="Fullscreen" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Maximize size={19} /></button>
           </div>
 
@@ -188,10 +206,24 @@ export function PlayerShell({ item }: { item: MediaItem }) {
         </div>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted">
-        <span>Engine <strong className="text-silver">{snap.engine}</strong></span><span>Quality <strong className="text-silver">{snap.currentQualityLabel}</strong></span><span>State <strong className="text-silver">{snap.state}</strong></span>
-        <span className="hidden sm:inline">Keys: Space · ←/→ seek · M mute · F fullscreen</span>
+      {/* Live stream status — bilkul reference players ki tarah, magar saare numbers ASAL player se */}
+      <div className="chips-row -mx-3 mt-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0" aria-label="Stream status">
+        {[
+          ['Format', snap.format.toUpperCase()],
+          ['Quality', snap.bitrateKbps ? `${snap.currentQualityLabel} · ${snap.bitrateKbps} kbps` : snap.currentQualityLabel],
+          ['Resolution', snap.resolution],
+          ['Audio', snap.audioLabel],
+          ['Subtitles', snap.subtitleTracks.find((t) => t.id === snap.subtitleId)?.label ?? 'Off'],
+          ['Buffer', snap.duration > 0 || snap.bufferedEnd > 0 ? `${Math.max(0, Math.round(snap.bufferedEnd - snap.currentTime))}s` : 'Live edge'],
+          ['Dropped', `${snap.droppedFrames} frames`],
+          ['Speed', `${snap.rate}×`],
+          ['State', snap.state],
+        ].map(([k, v]) => (
+          <span key={k} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><span className="font-semibold uppercase tracking-wide text-muted">{k}</span><strong className="max-w-[150px] truncate text-silver">{v}</strong></span>
+        ))}
+        <span className="hidden items-center px-1 text-[11px] text-muted xl:inline">Keys: Space · ←/→ 10s · M mute · F fullscreen</span>
       </div>
+      {notice && <p className="mt-2 text-xs font-medium text-cyanx" role="status">{notice}<button type="button" onClick={() => setNotice('')} className="ml-2 text-muted underline">dismiss</button></p>}
       {(nowNext.current || nowNext.next) && (
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {nowNext.current && <div className="rounded-xl border border-sky-500/40 bg-sky-950/40 p-3 text-sm"><p className="font-bold">Now — {nowNext.current.title}</p><p className="mt-0.5 text-xs text-muted">{new Date(nowNext.current.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(nowNext.current.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><span className="mt-2 block h-1.5 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-sky-400" style={{ width: `${Math.min(100, Math.max(0, ((Date.now() - nowNext.current.start) / (nowNext.current.end - nowNext.current.start)) * 100))}%` }} /></span></div>}

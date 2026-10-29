@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --svx-accent: #0ea5e9; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { overflow-x: hidden; }
+body { margin: 0; background: #050816; color: #e6edf7; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+::selection { background: rgba(14,165,233,.4); }
+:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+video::cue { background: rgba(0,0,0,.7); }
+html:not(.dark) body { background: #eef2f8; color: #12213c; }
+html:not(.dark) .bg-ink { background-color: #eef2f8 !important; }
+html:not(.dark) .bg-panel { background-color: #ffffff !important; }
+html:not(.dark) .bg-card { background-color: #f4f7fc !important; }
+html:not(.dark) .text-silver { color: #12213c !important; }
+html:not(.dark) .text-muted { color: #4a607e !important; }
+html:not(.dark) .border-border { border-color: #c9d6ea !important; }
+[data-density="compact"] main { font-size: 0.92rem; }
+input[type="range"] { cursor: pointer; }

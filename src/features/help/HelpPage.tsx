@@ -1,0 +1,19 @@
+import { Card } from '@/components/ui/ui';
+
+export function HelpPage() {
+  return (
+    <div className="mx-auto max-w-4xl"><h1 className="mb-1 text-2xl font-extrabold">Help & About</h1><p className="mb-5 text-sm text-muted">SIRAVEX 1.0.0 · Build SIRAVEX-001 · Premium IPTV & Universal Media Player for your own authorized sources.</p>
+      {[
+        ['Getting started', 'Open Playlists and import an .m3u/.m3u8 file, paste a playlist URL, connect an Xtream-compatible account, or add the clearly labelled demo samples (Big Buck Bunny / Tears of Steel sample streams). Items then appear in Live TV, Movies and Series. Import an XMLTV file on the EPG page for real programme data.'],
+        ['Why did my URL import fail?', 'Most commonly CORS or provider browser-blocking. Browsers cannot bypass CORS by changing frontend headers, and SIRAVEX will not use an unrestricted proxy. Download the playlist file from your provider and import it locally. Stream playback itself can still be blocked by the stream server even when the playlist imports fine.'],
+        ['Which formats play?', 'HLS (.m3u8 via native Safari playback or HLS.js), MPEG-DASH (.mpd via Shaka Player), and browser-supported MP4/WebM. RTSP, RTMP and raw MPEG-TS (.ts) do not play directly in browsers — your provider would need to offer HLS/DASH or an authorized gateway. Codec support (ideally H.264/AAC) depends on your browser. DRM content is played only through legitimate provider licence flows; SIRAVEX never circumvents DRM.'],
+        ['Install SIRAVEX (PWA)', 'Android/desktop Chrome or Edge: use the Install prompt or browser menu → Install app. iPhone/iPad Safari: Share → Add to Home Screen (Apple does not expose a programmatic install prompt). Installation behaviour differs by platform. Offline mode preserves the app shell, playlists and settings on-device — live TV still needs internet.'],
+        ['Privacy', 'Everything is stored locally on this device. There are no accounts, analytics or uploads. Passwords are never persisted or logged; exports exclude URLs and credentials. See Settings → Privacy & Storage to clear data.'],
+        ['Troubleshooting playback', 'Use the player error action first (expired session, CORS, unsupported codec). Then check Diagnostics for the sanitized error history and capability summary. Try another browser for codec issues, and confirm the same source works in your provider’s own app.'],
+      ].map(([t, b]) => <Card key={t} className="mb-3"><h2 className="font-bold">{t}</h2><p className="mt-1 text-sm leading-6 text-muted">{b}</p></Card>)}
+      <Card><h2 className="font-bold">Feature support matrix</h2><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[520px] text-left text-sm"><thead><tr className="border-b border-border"><th className="py-2 pr-3">Capability</th><th className="py-2 pr-3">Status</th><th className="py-2">Notes</th></tr></thead><tbody className="text-muted">
+        {[['M3U/M3U8 file & URL import', 'Supported', 'Preview + warnings before saving'], ['Xtream-compatible get.php import', 'Best-effort', 'Depends on provider browser/CORS policy'], ['XMLTV EPG', 'Supported', 'Matched by tvg-id, timezone-aware'], ['HLS / DASH / MP4 / WebM', 'Supported', 'HLS.js + Shaka, loaded on demand'], ['RTSP / RTMP / raw TS', 'Not playable in browsers', 'Needs provider HLS/DASH gateway'], ['Audio/subtitle/quality selection', 'When exposed by source', 'Menus reflect real tracks only'], ['Downloads / offline video', 'Not supported', 'Offline = app shell + local data only'], ['DRM licence flows', 'Provider-dependent', 'No circumvention, ever']].map((r) => <tr key={r[0]} className="border-b border-border/60"><td className="py-2 pr-3 text-silver">{r[0]}</td><td className="py-2 pr-3">{r[1]}</td><td className="py-2">{r[2]}</td></tr>)}
+      </tbody></table></div></Card>
+    </div>
+  );
+}

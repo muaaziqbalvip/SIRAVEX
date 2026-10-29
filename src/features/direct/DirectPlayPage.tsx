@@ -8,20 +8,21 @@ import { redactUrl, sanitizeUrl } from '@/lib/security';
 import type { MediaItem } from '@/types/models';
 import type { LoadOptions } from '@/playback/engine';
 
-const RECENT_KEY = 'siravex-direct-links';
+const RECENT_KEY = 'siravex-direct-links'; // purani persisted recents (full private URLs) — mount par delete
 const FORMATS = [
   ['auto', 'Auto-Detect'], ['hls', 'HLS (.m3u8)'], ['dash', 'DASH (.mpd)'], ['mpegts', 'MPEG-TS (.ts)'], ['flv', 'FLV (.flv)'], ['native', 'MP4 / WebM / MKV'],
 ] as const;
 
 export function DirectPlayPage() {
   const [url, setUrl] = useState(() => { try { return sessionStorage.getItem('siravex-direct-prefill') ?? ''; } catch { return ''; } });
-  useEffect(() => { try { sessionStorage.removeItem('siravex-direct-prefill'); } catch { /* ignore */ } }, []);
+  useEffect(() => { try { sessionStorage.removeItem('siravex-direct-prefill'); localStorage.removeItem(RECENT_KEY); } catch { /* ignore */ } }, []);
   const [format, setFormat] = useState<string>('auto');
   const [clearKey, setClearKey] = useState('');
   const [licenseUrl, setLicenseUrl] = useState('');
   const [playing, setPlaying] = useState<{ url: string; opts: LoadOptions; at: number } | null>(null);
   const [error, setError] = useState('');
-  const [recent, setRecent] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') as string[]; } catch { return []; } });
+  // Recents SIRF is session ki memory mein — token wale private links disk par kabhi save nahi hote.
+  const [recent, setRecent] = useState<string[]>([]);
   const detected = useMemo(() => (url.trim() ? formatOf(url.trim(), format) : null), [url, format]);
 
   const play = (raw?: string) => {
@@ -39,9 +40,7 @@ export function DirectPlayPage() {
       if (!sanitizeUrl(licenseUrl.trim())) { setError('License URL valid nahi hai.'); return; }
       opts = { ...opts, licenseUrl: licenseUrl.trim() };
     }
-    const next = [clean, ...recent.filter((r) => r !== clean)].slice(0, 6);
-    setRecent(next);
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    setRecent((prev) => [clean, ...prev.filter((r) => r !== clean)].slice(0, 6));
     setPlaying({ url: clean, opts, at: Date.now() });
   };
 
@@ -76,7 +75,7 @@ export function DirectPlayPage() {
         <Button className="mt-4 w-full sm:w-auto" onClick={() => play()} disabled={!url.trim()}><Play size={18} aria-hidden />Play Stream</Button>
         {recent.length > 0 && (
           <div className="mt-4 border-t border-border pt-3">
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Recent (host sirf — tokens kabhi nahi dikhte)</p>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Recent — sirf is session ke liye (host dikhta hai, tokens kabhi save nahi hote)</p>
             <div className="flex flex-wrap gap-1.5">{recent.map((r) => <button key={r} type="button" onClick={() => { setUrl(r); play(r); }} className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-border bg-panel px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Radio size={13} aria-hidden />{redactUrl(r)}</button>)}</div>
           </div>
         )}

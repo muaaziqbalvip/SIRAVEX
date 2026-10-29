@@ -19,6 +19,16 @@ export function shakaCategory(code: number): { category: PlaybackCategory; messa
   return null;
 }
 
+/**
+ * Shaka apne RECOVERABLE errors (severity 1) khud retry karta hai — un par
+ * error screen kholna ghalat hai. Sirf CRITICAL (severity 2) asal failure hai.
+ * Detail ghair maujood ho to purani hifazat: critical samjho (error na chhupayein).
+ */
+export function isShakaCritical(detail?: { severity?: number } | null): boolean {
+  if (!detail) return true;
+  return detail.severity !== 1;
+}
+
 export function mapPlaybackError(input: { code?: number; shakaCode?: number; message?: string; url?: string; format?: string; detailCode?: string }): PlaybackErrorInfo {
   const msg = (input.message || '').toLowerCase();
   const codeLabel = input.detailCode ?? (input.shakaCode ? `DASH error ${input.shakaCode}` : input.code ? `Media error ${input.code}` : undefined);

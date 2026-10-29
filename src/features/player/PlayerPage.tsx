@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Heart, ListVideo, Play, Star } from 'lucide-react';
+import { CalendarClock, Heart, ListVideo, Play, Star } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
@@ -9,14 +9,16 @@ import { cleanTitle } from '@/lib/display';
 
 export function PlayerPage() {
   const { id } = useParams();
-  const { ready, items, playlists, programmes, toggleFavourite, isFavourite, progress, settings, loadSeriesEpisodes, toast } = useStore();
+  const { ready, items, playlists, programmes, toggleFavourite, isFavourite, progress, settings, loadSeriesEpisodes, loadShortEpg, toast } = useStore();
   const [epPass, setEpPass] = useState('');
   const [epBusy, setEpBusy] = useState(false);
+  const [sgPass, setSgPass] = useState('');
+  const [sgBusy, setSgBusy] = useState(false);
   const item = items.find((i) => i.id === decodeURIComponent(id ?? ''));
   const todayShows = useMemo(() => {
     if (!item || item.kind !== 'live' || !item.tvgId) return [] as typeof programmes;
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    return programmes.filter((pr) => pr.channelId === item.tvgId && pr.end > dayStart.getTime() && pr.start < dayStart.getTime() + 86400000).sort((a, b) => a.start - b.start).slice(0, 20);
+    return programmes.filter((pr) => (pr.channelId === item.tvgId || pr.channelId === item.id) && pr.end > dayStart.getTime() && pr.start < dayStart.getTime() + 86400000).sort((a, b) => a.start - b.start).slice(0, 20);
   }, [programmes, item]);
   if (!ready) return <Skeleton className="aspect-video w-full" />;
   if (!item) return <EmptyState title="Item not found" body="This item may have been removed with its playlist. Your library is unchanged otherwise." action={<Link to="/"><Button>Back to Home</Button></Link>} />;
@@ -54,6 +56,14 @@ export function PlayerPage() {
         <Button variant="outline" onClick={() => void toggleFavourite(item.id)} aria-pressed={fav}><Heart size={18} className={fav ? 'fill-red-400 text-red-400' : ''} aria-hidden />{fav ? 'Favourited' : 'Add to Favourites'}</Button>
       </div>
       {nextEp && <div className="mt-5 rounded-2xl border border-border bg-card p-4"><p className="text-sm"><strong>Next episode:</strong> {nextEp.title}</p><Link to={`/player/${encodeURIComponent(nextEp.id)}`}><Button className="mt-2">Play next episode</Button></Link></div>}
+{item.kind === 'live' && sourcePlaylist?.type === 'xtream' && item.streamId && todayShows.length === 0 && (
+        <section aria-label="Provider guide" className="mt-6 rounded-2xl border border-border bg-card p-4">
+          <h2 className="flex items-center gap-2 text-base font-extrabold"><CalendarClock size={18} className="text-cyanx" aria-hidden />Channel Guide (EPG)</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">Is channel ke liye loaded guide mein abhi koi programme nahi mila. Provider se is channel ki <strong className="text-silver">short EPG (now/next + upcoming)</strong> abhi load karein — ya Playlists → Fetch EPG se poora XMLTV guide layein.</p>
+          {!sourcePlaylist.password && <label className="mt-3 block max-w-sm text-xs text-muted">Account password (not saved)<input type="password" value={sgPass} onChange={(e) => setSgPass(e.target.value)} autoComplete="current-password" className="mt-1 min-h-[44px] w-full rounded-xl border border-border bg-ink px-3 text-sm text-silver focus:border-sky-400 focus:outline-none" /></label>}
+          <Button className="mt-3" disabled={sgBusy} onClick={async () => { setSgBusy(true); try { const n = await loadShortEpg(item, sgPass || undefined); toast({ tone: 'success', title: `${n} programmes loaded`, body: 'Now/Next aur schedule neeche nazar ayegi.' }); } catch (e) { toast({ tone: 'error', title: 'EPG load nahi hua', body: e instanceof Error ? e.message : 'Failed' }); } finally { setSgBusy(false); } }}><CalendarClock size={17} aria-hidden />{sgBusy ? 'Loading guide…' : 'Load channel guide'}</Button>
+        </section>
+      )}
 {sameGroupLive.length > 0 && (
         <section aria-label="More channels in this group" className="mt-6">
           <h2 className="mb-2 text-base font-extrabold">Same group — {cleanTitle(item.group) || 'Channels'}</h2>

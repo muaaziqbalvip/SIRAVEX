@@ -1,86 +1,164 @@
 <div align="center">
 
-<img src="public/icons/icon-512.png" alt="SIRAVEX" width="120" />
+<img src="public/icons/icon-512.png" alt="SIRAVEX" width="128" />
 
-# SIRAVEX — Premium IPTV & Universal Media Player
+# 📺 SIRAVEX
 
-**Live TV · Movies · Series · EPG · Xtream Codes · Play Any Stream**
+### Premium IPTV & Universal Media Player
 
-[![Version](https://img.shields.io/badge/version-2.1.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX)
-[![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#testing--qa)
-[![Tests](https://img.shields.io/badge/tests-40%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#testing--qa)
+**Live TV · Movies · Series · EPG Guide · Xtream Codes · Play Any Stream**
+
+[![Version](https://img.shields.io/badge/version-2.2.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
+[![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#-testing--qa)
+[![Tests](https://img.shields.io/badge/tests-44%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#install-pwa)
+[![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#-install-pwa)
 [![HLS.js](https://img.shields.io/badge/HLS.js-HLS-f59e0b?style=for-the-badge)](https://github.com/video-dev/hls.js)
 [![Shaka Player](https://img.shields.io/badge/Shaka-DASH-ef4444?style=for-the-badge)](https://github.com/shaka-project/shaka-player)
 [![mpegts.js](https://img.shields.io/badge/mpegts.js-TS%20%2F%20FLV-06b6d4?style=for-the-badge)](https://github.com/xqq/mpegts.js)
-[![Vercel](https://img.shields.io/badge/deploy-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](#deploy-to-vercel)
-[![License](https://img.shields.io/badge/license-MIT-94a3b8?style=for-the-badge)](#security-notes)
+[![Vercel](https://img.shields.io/badge/deploy-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](#-deploy-to-vercel)
+[![License](https://img.shields.io/badge/license-MIT-94a3b8?style=for-the-badge)](#-license)
+
+**Designed & engineered by [Muaaz Iqbal](https://github.com/muaaziqbalvip) — Kasur, Punjab, Pakistan 🇵🇰**
 
 </div>
 
-Installable PWA for playing **your own authorized** IPTV and media sources. SIRAVEX bundles **no** channels, movies, credentials or playlists. Demo content is limited to clearly labelled, legally usable sample streams (Big Buck Bunny / Tears of Steel test streams).
+---
 
-## v2.1 — player reliability upgrade
+## ✨ What is SIRAVEX?
 
-- **Bottom-sheet track panels** inside the player (Audio / Quality / Subtitles / More) — they can never be clipped at the screen edge again, and controls no longer auto-hide while a panel is open.
-- **Real DASH errors:** Shaka error codes are decoded (network/HTTP+auth, manifest, decode, DRM, restrictions) with a visible code chip — “unknown” only when the player truly reports nothing. Error screen can reopen the stream in Play Stream (via in-memory session prefill, never a URL).
-- **Honest single-rendition quality:** when a source sends one rendition, the menu says so and shows the real resolution/bitrate instead of a misleading empty list; multi-rendition labels now include bitrate (e.g. `720p · 2500k`).
-- **More IPTV functions:** Go Live (DVR catch-up), sleep timer, detailed stats overlay (bitrate, buffer, dropped-frame %), external `.srt`/`.vtt` subtitle file loading (converted in-browser), favourite toggle in the player top bar, same-group channel strip, today's EPG schedule on channel pages, related movies, slimmer dismissible install prompt, keyboard volume (↑/↓).
+SIRAVEX is an **installable PWA** for playing **your own authorized** IPTV and media sources — no bundled channels, no credentials, no fake content. Import an M3U file/URL or connect an Xtream Codes account, and get a premium OTT-style player with **real** quality / audio / subtitle switching, a live EPG guide, favourites, watch history with resume, and honest, human-readable playback errors.
 
-## Quick start
+> 🔒 **Privacy first:** everything lives in your browser (IndexedDB). Diagnostics and exports show **hosts only** — never full private URLs, tokens, or passwords.
 
-- **Node.js:** 20+ (built and verified on Node 22), npm 10+
-- Install: `npm install`
-- Dev server: `npm run dev` → http://localhost:5173
-- Tests: `npm test`
-- Type check / lint: `npm run typecheck` (strict TypeScript; `npm run lint` is the same gate)
-- Production build: `npm run build` → output in `dist/`
-- Preview build: `npm run preview`
+---
 
-No environment variables, API keys or backend are required. See `.env.example`. Never prefix secrets with `VITE_` — Vite exposes those to the browser bundle.
+## 🚀 v2.2 “Nexus” — full playback audit
 
-## Using SIRAVEX
+This release is the result of a **line-by-line audit** of the whole project. Every bug below was reproduced in code review against the installed hls.js / Shaka Player APIs and fixed:
 
-1. **Import a playlist:** Playlists → M3U file (≤15 MB, parsed on-device with preview + warnings), M3U URL (browser fetch; may be blocked by CORS), or Xtream Codes (server/username/password, used only for that request, never stored or logged). Or add the **labelled demo samples**.
-2. **Watch:** Live TV / Movies / Series group your items automatically. Series episodes group via `S01E02` titles or `/series/` URLs; movies via groups or `/movie/` URLs. Open any item for the real player.
-3. **EPG:** EPG page → Import XMLTV file (≤25 MB). Programmes match channels by `tvg-id`; times honour XMLTV timezone offsets. No EPG is ever invented.
-4. **Playback formats (v2):** HLS `.m3u8` (native Safari or HLS.js) · DASH `.mpd` — **including token links like `…/render.mpd?auth=…&channel_id=…&q=auto`** (detection reads the pathname, so auth queries never break it) · **MPEG-TS `.ts` and FLV `.flv` via mpegts.js** · MP4/WebM/MOV/MKV (native attempt). RTSP/RTMP still cannot play in any browser without an authorized gateway.
-5. **Play Any Stream:** the *Play Stream* page plays any single authorized URL with Auto-Detect or a forced format chip, plus optional provider-issued ClearKey (`kid:key`) / Widevine licence configuration for DASH — keys are only configured into the player, never extracted or bypassed. The player shows live Format / Quality (+kbps) / Resolution / Audio / Subtitles / Buffer / Dropped-frames chips, all from the real engine.
-6. **Xtream Codes:** Playlists → Xtream Codes uses the real `player_api.php` API (Live + VOD with posters/ratings + Series episodes) and fetches the full `xmltv.php` EPG automatically, with a per-source **Fetch EPG** refresh.
-7. **Install (PWA):** Chrome/Edge on Android/desktop: Install prompt or browser menu → Install. Safari iOS/iPadOS: Share → Add to Home Screen. Offline keeps the app shell + local data; live streams need internet.
-8. **Privacy:** Everything (playlists, EPG, favourites, progress, settings) lives only in this browser (IndexedDB + local settings). Diagnostics and exports show hosts only — never full private URLs, tokens or passwords.
+| # | Bug (what you experienced) | Root cause | Fix |
+|---|---|---|---|
+| 1 | Player showed an error screen for streams that would have recovered | Shaka fires `error` for **RECOVERABLE** problems too — the overlay opened on all of them | Only `severity = CRITICAL` opens the error state; recoverable errors let Shaka retry silently |
+| 2 | Subtitles never turned on (HLS/DASH) | `setSubtitle` ran HLS + Shaka + raw `textTracks` handling together; the last loop disabled the track the engine had just enabled | Subtitle routing is now exclusive to the **active engine**; external files get their own path |
+| 3 | DASH subtitle panel was always empty | Shaka text tracks don't appear in `video.textTracks` before selection | Panel is built from `player.getTextTracks()` with real selection by track id |
+| 4 | Switching channels quickly played the wrong channel / random errors | Async loads raced — a slow previous load attached after the new one | Every load carries a generation number; stale loads can never touch state or the video element |
+| 5 | Movies briefly showed a LIVE badge and no seek bar | `duration = NaN` (before metadata) was treated as live | Live only when `duration === Infinity` |
+| 6 | Reload loops after switching away from native playback | `<video>` error events fired by adapter teardown triggered a full reload | Video-error handling restricted to native playback only |
+| 7 | Random extension-less links failed as “DASH” | URLs containing `/stream`, `/live`, `/playlist` were guessed as DASH | Only explicit DASH hints (`render`, `?format=mpd`, …) classify as DASH |
+| 8 | iPhone/Safari showed an empty Audio panel | Native HLS never published its audio renditions | Safari `video.audioTracks` are now listed and switchable |
+| 9 | Refreshing a deep route in the installed PWA showed the offline page | `navigateFallback` pointed at `offline.html` | SPA fallback now serves the app shell (`index.html`) — verified in the generated `sw.js` |
+| 10 | Tokenized links were stored on disk | “Recent streams” persisted full URLs in `localStorage` | Recents are session-memory only; old persisted entries are deleted on startup |
+| 11 | Forced-format TS links broke in Play Stream | The Xtream `.ts → .m3u8` rewrite also rewrote user-forced formats | Rewrite is skipped when you force a format |
 
-## Architecture
+**Plus:** Xtream **short EPG fallback** (per-channel Now/Next loader when XMLTV has no match), manual-quality fallback is now detected honestly (if hls.js falls back to Auto, the UI says so), and demo imports no longer duplicate.
+
+### Earlier highlights
+
+- **v2.1** — in-player bottom-sheet panels (never clipped), real Shaka error codes (`DASH error 1002`…) instead of “unknown”, Go Live, sleep timer, stats overlay, external `.srt`/`.vtt` subtitles, honest single-rendition quality notes.
+- **v2.0** — Universal Engine (MPEG-TS/FLV, tokenized `render.mpd?auth=…` DASH), Play Any Stream page, layout-overflow overhaul, live status chips.
+- **v1.1** — real Xtream Codes API (Live/VOD/Series + XMLTV EPG), brand icons, mobile glitch fixes.
+
+---
+
+## 🎬 Player guide — how tracks really work
+
+| Feature | HLS (hls.js) | HLS (Safari native) | DASH (Shaka) | MPEG-TS / FLV (mpegts.js) | MP4/WebM |
+|---|---|---|---|---|---|
+| Quality | All renditions + Auto, bitrate labels (`720p · 2500k`), manual lock | Auto only (browser-managed) | All heights + Auto (ABR), manual variant lock | Single rendition | Single file |
+| Audio | Every audio rendition, switches instantly | Every rendition via `audioTracks` | Every language/role (`en · main`) | Embedded track only | Embedded track only |
+| Subtitles | Embedded tracks + your `.srt`/`.vtt` file | Embedded + file | Embedded (Shaka text tracks) + file | File only | File / embedded |
+
+Rules the player follows: **nothing is faked.** If a source sends one rendition or one audio track, the menu says exactly that instead of pretending. If playback fails, you get the real category (network / auth / CORS / DRM / codec / manifest) **with the engine's error code** and the next step to try.
+
+**Keyboard:** `Space` play/pause · `←/→` ∓10s · `↑/↓` volume · `M` mute · `F` fullscreen · `Esc` close panel.
+
+---
+
+## ⚡ Quick start
+
+```bash
+npm install        # deps
+npm run dev        # http://localhost:5173
+npm test           # 44 tests
+npm run typecheck  # strict TypeScript
+npm run build      # production build → dist/
+```
+
+- **Node.js 20+** (verified on Node 22), npm 10+. No env vars, API keys or backend required (see `.env.example`). Never prefix secrets with `VITE_`.
+
+## 📖 Using SIRAVEX
+
+1. **Add a source** — Playlists → **M3U file** (≤15 MB, on-device preview + warnings), **M3U URL**, or **Xtream Codes** (real `player_api.php` + `xmltv.php`; password stored only if you tick “remember”).
+2. **Watch** — Live TV / Movies / Series auto-group your library. Series episodes load on demand; movies keep posters, year, rating and duration from the provider.
+3. **Guide** — full XMLTV EPG auto-fetches for Xtream sources; any channel page can also load that channel's **short EPG** directly from the provider.
+4. **Play Any Stream** — paste any authorized URL (HLS, DASH incl. tokenized `render.mpd?auth=…`, TS, FLV, MP4). Force a format if auto-detect guesses wrong; add provider-issued ClearKey / Widevine licence under *Advanced* if your DASH stream is encrypted.
+5. **Install** — Chrome/Edge: install prompt or menu → *Install app*. iOS Safari: Share → *Add to Home Screen*.
+
+---
+
+## 👨‍💻 Meet the Developer
+
+<div align="center">
+
+<img src="https://avatars.githubusercontent.com/u/246672383?v=4" alt="Muaaz Iqbal" width="96" style="border-radius: 50%" />
+
+### Muaaz Iqbal
+
+**Founder & Lead Developer — SIRAVEX** · Kasur, Punjab, Pakistan 🇵🇰
+
+[![GitHub](https://img.shields.io/badge/GitHub-muaaziqbalvip-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/muaaziqbalvip)
+[![Website](https://img.shields.io/badge/Website-muaaziqbalvip.github.io-0ea5e9?style=for-the-badge&logo=googlechrome&logoColor=white)](https://muaaziqbalvip.github.io)
+[![Hireable](https://img.shields.io/badge/status-open%20to%20work-22c55e?style=for-the-badge)](https://github.com/muaaziqbalvip)
+
+</div>
+
+Muaaz Iqbal is an independent software developer from **Kasur, Punjab, Pakistan**, building open-source media and AI products under the **Mizanora Projects** ecosystem. His public work spans Android development (Kotlin/Java), AI & trading applications, and web streaming platforms — including **MI Trade Master**, **BarakatWave TV**, **Mizanora TV** and the **Asaan Lang** programming language. SIRAVEX is his flagship web IPTV player: designed, engineered and maintained solo, with a strict rule — *real features only, nothing faked, user privacy never traded.*
+
+> Want a feature, or found a bug? Open an issue on [GitHub](https://github.com/muaaziqbalvip/SIRAVEX/issues) — playback reports are most useful with the error code shown on the player (e.g. `DASH error 1002`) and your browser name. **Never paste private stream links or passwords into issues.**
+
+---
+
+## 🧱 Architecture
 
 ```
-src/app (router, store) · src/components (ui, layout, media) · src/features/* (one folder per route)
-src/playback/engine.ts (single-owner PlaybackEngine; lazy HLS.js/Shaka adapters, error mapper, capabilities)
-src/services/playlist/m3u.ts · src/services/epg/xmltv.ts · src/services/storage/db.ts (versioned IndexedDB v1)
+src/app/            router (HashRouter), global store, settings
+src/components/     UI kit · app shell · media cards
+src/features/       one folder per route (home, live-tv, movies, series, epg, player, direct, …)
+src/playback/       PlaybackEngine v4 (single owner of the <video> element)
+                    ├─ adapters: HLS.js · Shaka · mpegts.js · native — lazy-loaded chunks
+                    ├─ capabilities/  pathname-only format detection
+                    └─ errors/        Shaka/HLS/native error decoding with codes + actions
+src/services/       M3U parser · XMLTV · Xtream Codes API · IndexedDB (versioned)
+src/lib/            security (redaction) · display cleaning · subtitle converter · version
 ```
 
-Key rules enforced in code: one player instance with full cleanup, bounded retry (×1 reload then mapped error), seek only when seekable, no fake Live seek bar, track/quality menus built only from real engine data, keyboard shortcuts ignored while typing.
+Enforced in code: one player instance with full cleanup, generation-guarded loads, bounded retries, engine-exclusive track routing, menus built only from real engine data, sanitized diagnostics (host only).
 
-## Deploy to Vercel
+## 🌐 Deploy to Vercel
 
-1. Push this repo to GitHub and import it in Vercel (New Project → Import Git Repository).
-2. Framework preset: **Vite**. Build command `npm run build`, output directory `dist` (also pinned in `vercel.json`). No environment variables needed.
-3. Deploy. `vercel.json` provides the SPA fallback and basic security headers. SIRAVEX uses hash-based routes, so deep links (e.g. `/#/live`) refresh correctly even without rewrites; verify after deploy: homepage, a nested route refresh, `/manifest.webmanifest`, `/sw.js`, `/icons/icon-192.png`, playlist import, demo playback, and the production console.
-4. Preview deployments: every pull request/branch gets a Vercel preview URL automatically with Git integration. The service worker only registers over HTTPS (or localhost).
+1. Import the GitHub repo in Vercel — preset **Vite**, build `npm run build`, output `dist` (pinned in `vercel.json`).
+2. No environment variables needed. Hash-based routes (`/#/live`) make deep links refresh-safe anywhere.
+3. After deploy, verify: home, a nested route refresh, `/manifest.webmanifest`, `/sw.js`, `/icons/icon-192.png`, playlist import, and demo playback.
 
-## Troubleshooting
+## 🛠 Troubleshooting
 
-- **URL import fails / “could not fetch”:** usually CORS or provider browser-blocking. Frontend header changes cannot bypass CORS; SIRAVEX offers no unrestricted proxy. Download the M3U file from your provider and import it locally. Stream CORS is separate from playlist CORS.
-- **“Unsupported format”:** RTSP/RTMP/.ts or unsupported codec (prefer H.264/AAC). Ask your provider for HLS/DASH.
-- **No EPG:** import XMLTV and ensure channel `tvg-id`s match XMLTV channel ids.
-- **No install prompt:** iOS Safari has no programmatic prompt (Share → Add to Home Screen); the service worker requires HTTPS in production.
-- **Storage errors:** private browsing/quota — the app keeps working for the session and says so instead of crashing.
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| `DASH error 1001/1002` | Token expired or server refused (401/403/404) | Get a fresh link / re-import the source |
+| `DASH error 6xxx` (DRM) | Stream is encrypted | Play Stream → Advanced → add the licence/ClearKey **your provider issued** |
+| CORS / network error on many channels | Provider doesn't allow browser playback | Use the provider's app or ask them for web access — no legal in-browser workaround exists |
+| Quality menu shows one entry | Source sends a single rendition | Normal — the panel states the real resolution/bitrate |
+| Subtitles missing | Source has no text tracks | Load your own `.srt`/`.vtt` from the Subtitles panel |
+| Nothing imports from a URL | Playlist CORS | Download the `.m3u` file and import it locally instead |
 
-## Testing & QA
+Full QA history, audits and honest limitations: [`docs/QA-REPORT.md`](docs/QA-REPORT.md).
 
-`npm test` runs 21 Vitest tests (M3U parsing, XMLTV/timezones, URL/security helpers, playback error mapping, UI primitives) against synthetic fixtures in `src/test/fixtures/`. Playwright E2E is not bundled — the 11 manual E2E flows are listed in `docs/QA-REPORT.md`. See that file for the full QA, UI/UX audit, security review, feature matrix and known limitations.
+## 🧪 Testing & QA
 
-## Security notes
+`npm test` — **44 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
 
-No `eval`, no provider HTML rendering, no credentials in logs/diagnostics/exports, bounded fetch timeouts (20–25 s) and file-size limits, client-only architecture (no server fetch endpoint, therefore no SSRF surface). Report details: `docs/QA-REPORT.md`.
+## 📄 License
+
+MIT © **Muaaz Iqbal** — use it, learn from it, build on it. SIRAVEX ships with **no** channels, playlists or credentials; only add sources you are authorized to use.

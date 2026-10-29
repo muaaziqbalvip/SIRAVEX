@@ -3,7 +3,7 @@ import type { AppSettings, EpgProgramme, Favourite, MediaItem, PlaybackDiagnosti
 import { DEFAULT_SETTINGS } from '@/types/models';
 import { parseM3U, buildDemoPlaylistText } from '@/services/playlist/m3u';
 import { parseXmltv } from '@/services/epg/xmltv';
-import { connectXtream, fetchSeriesEpisodes, fetchXtreamEpg, type XtreamCreds } from '@/services/xtream/xtream';
+import { connectXtream, fetchSeriesEpisodes, fetchShortEpg, fetchXtreamEpg, type XtreamCreds } from '@/services/xtream/xtream';
 import * as db from '@/services/storage/db';
 import { downloadJson, redactUrl, sanitizeUrl, validatePlaylistFile } from '@/lib/security';
 
@@ -24,6 +24,7 @@ interface Store {
   importXtream: (name: string, creds: XtreamCreds) => Promise<ImportPreview>;
   refreshXtreamEpg: (playlistId: string, password?: string) => Promise<number>;
   loadSeriesEpisodes: (item: MediaItem, password?: string) => Promise<number>;
+  loadShortEpg: (item: MediaItem, password?: string) => Promise<number>;
   importEpg: (file: File) => Promise<{ count: number; warnings: string[] }>;
   renamePlaylist: (id: string, name: string) => Promise<void>;
   togglePlaylist: (id: string) => Promise<void>;
@@ -134,9 +135,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [persistPlaylistItems, persistProgrammes, playlists.length]);
 
   const importDemo = useCallback(async () => {
+    // Dobara Add dabane se duplicate demo playlists nahi banti.
+    for (const old of playlists.filter((x) => x.type === 'demo')) { try { await db.deletePlaylistCascade(old.id); } catch { /* ignore */ } }
+    if (playlists.some((x) => x.type === 'demo')) { setPlaylists((p) => p.filter((x) => x.type !== 'demo')); setItems((p) => p.filter((i) => !playlists.some((x) => x.type === 'demo' && x.id === i.playlistId))); }
     const parsed = parseM3U(buildDemoPlaylistText());
     await commitImport('Demo samples (labelled demo)', { name: 'Demo', items: parsed.items, warnings: [], errors: [], total: parsed.items.length }, 'demo');
-  }, [commitImport]);
+  }, [commitImport, playlists]);
 
   const importUrl = useCallback(async (name: string, url: string): Promise<ImportPreview> => {
     const clean = sanitizeUrl(url);
@@ -194,6 +198,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { const all = [...items.filter((x) => x.id !== item.id), ...full]; await db.replaceItems(p.id, all.filter((x) => x.playlistId === p.id)); } catch { /* session only */ }
     return full.length;
   }, [playlists, items]);
+
+  /** Short EPG fallback: XMLTV na mile to provider se is channel ki now/next + upcoming listings. */
+  const loadShortEpg = useCallback(async (item: MediaItem, password?: string): Promise<number> => {
+    const p = playlists.find((x) => x.id === item.playlistId);
+    if (!item.streamId) throw new Error('Is channel ka provider stream id maujood nahi.');
+    if (!p?.server || !p.username) throw new Error('Short EPG sirf Xtream sources ke liye hai. Source ko Xtream tab se reconnect karein.');
+    const pass = password ?? p.password;
+    if (!pass) throw new Error('Account password darj karein (device par save nahi tha).');
+    const rows = await fetchShortEpg({ server: p.server, username: p.username, password: pass }, item.streamId, 12);
+    if (rows.length === 0) throw new Error('Provider ne is channel ke liye koi EPG listing nahi bheji.');
+    const channelId = item.tvgId ?? item.id;
+    const mapped = rows.map((r) => ({ channelId, title: r.title, description: r.description, start: r.start, end: r.end }));
+    // Maujooda usi channel ki listings hata kar fresh daalo (duplicates nahi).
+    const merged = [...programmes.filter((pr) => !(pr.playlistId === item.playlistId && pr.channelId === channelId)), ...mapped.map((m, i) => ({ ...m, id: `epg:${item.playlistId}:${i}:${channelId}`, playlistId: item.playlistId }))];
+    try { await db.replaceProgrammesForPlaylist(item.playlistId, merged.filter((pr) => pr.playlistId === item.playlistId)); } catch { /* session only */ }
+    setProgrammes(merged);
+    return rows.length;
+  }, [playlists, programmes]);
 
   const importEpg = useCallback(async (file: File): Promise<{ count: number; warnings: string[] }> => {
     if (file.size > 25 * 1024 * 1024) throw new Error('EPG file exceeds the 25 MB safety limit.');
@@ -279,10 +301,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Store>(() => ({
     ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics,
-    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, importEpg,
+    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg,
     renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist,
     toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings,
-  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
+  }), [ready, storageError, settings, updateSettings, resetSettings, playlists, items, programmes, favourites, progress, diagnostics, toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream, refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg, renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, toggleFavourite, isFavourite, saveProgress, removeProgress, clearHistory, logDiagnostic, clearLocalData, exportSettings]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

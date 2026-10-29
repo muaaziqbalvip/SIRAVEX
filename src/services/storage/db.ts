@@ -1,5 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type { EpgProgramme, Favourite, MediaItem, PlaybackDiagnostic, PlaylistSource, WatchProgress } from '@/types/models';
+import { sortFavourites } from '@/lib/favourites-order';
 
 const DB_NAME = 'siravex';
 export const DB_VERSION = 1;
@@ -29,7 +30,7 @@ export async function loadAll(): Promise<{ playlists: PlaylistSource[]; items: M
   const [playlists, items, programmes, favourites, progress, diagnostics] = await Promise.all([
     d.getAll('playlists'), d.getAll('items'), d.getAll('programmes'), d.getAll('favourites'), d.getAll('progress'), d.getAll('diagnostics'),
   ]);
-  return { playlists: playlists as PlaylistSource[], items: items as MediaItem[], programmes: programmes as EpgProgramme[], favourites: favourites as Favourite[], progress: progress as WatchProgress[], diagnostics: (diagnostics as PlaybackDiagnostic[]).sort((a, b) => b.at - a.at).slice(0, 100) };
+  return { playlists: playlists as PlaylistSource[], items: items as MediaItem[], programmes: programmes as EpgProgramme[], favourites: sortFavourites(favourites as Favourite[]), progress: progress as WatchProgress[], diagnostics: (diagnostics as PlaybackDiagnostic[]).sort((a, b) => b.at - a.at).slice(0, 100) };
 }
 export async function putPlaylist(p: PlaylistSource): Promise<void> { await (await db()).put('playlists', p); }
 export async function deletePlaylistCascade(id: string): Promise<void> {

@@ -201,6 +201,27 @@ export const GUIDES: Guide[] = [
       'SIRAVEX DRM bypass nahi karta. Encrypted streams sirf provider ke diye hue licence/ClearKey se chalte hain.',
     ],
   },
+  {
+    slug: 'record-streams', title: 'Stream Record Karna — Recorder Guide', description: 'Jo video chal raha hai use MP4/WebM file me record karna: quality, direct-disk saving, pause/resume aur common blocks ki wajahen.', category: 'Watching', minutes: 4,
+    body: [
+      '## Recorder kya karta hai',
+      'Player me red ● button (ya player ke andar Recorder panel) se jo video abhi chal raha hai wahi record hota hai aur Stop & Save par file download ho jati hai. Format browser decide karta hai: Safari/naye Chrome me aksar MP4, Chrome/Firefox me WebM — dono standard players me chalte hain.',
+      '## Steps',
+      '1. Channel/movie chalayein aur video play hone dein (track load ho jaye).',
+      '2. Neeche controls me red ● button dabayein — Recorder panel khulega.',
+      '3. Quality chunein: High 8 Mbps (bari file), Medium 4 Mbps (recommended), Low 1.5 Mbps (mobile/chhoti file).',
+      '4. Start Recording dabayein. Upar REC chip par time aur size live dikhega.',
+      '5. Pause/Resume se darmiyan ke hisse rok sakte hain; Stop & Save se file save ho jati hai.',
+      '## Lambi recording? Direct disk on karein',
+      'Chrome/Edge me “Direct disk par save” on karne se recording seedha aap ki chuni hui file me jati hai — ghanton ki recording me bhi RAM nahi bharti. Memory mode me ~700MB par warning ajati hai; tab Stop & Save kar ke nayi recording shuru kar lein.',
+      '## Recording blocked kyun hoti hai?',
+      '- DRM-protected (encrypted) streams: browser capture ko black/block kar deta hai — ye jaan bujh kar hai, SIRAVEX DRM bypass nahi karta.',
+      '- Kuch cross-origin servers capture allow nahi karte — aisi surat me player wajah likh kar bata deta hai.',
+      '- Purane browsers me MediaRecorder hi nahi hota — Chrome/Edge/Firefox/Safari ka naya version istemal karein.',
+      '## Zimmedari',
+      'Sirf wahi content record karein jis ke aap ke paas rights/ijazat hai. Recordings aap ke apne device par rehti hain — SIRAVEX kuch upload nahi karta.',
+    ],
+  },
 ];
 
 export function getGuide(slug: string): Guide | undefined { return GUIDES.find((g) => g.slug === slug); }

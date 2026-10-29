@@ -30,4 +30,6 @@
   <url><loc>https://siravex.vercel.app/guides/troubleshooting-errors</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://siravex.vercel.app/guides/account-and-admin</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://siravex.vercel.app/guides/privacy-and-safety</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://siravex.vercel.app/guides/record-streams</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://siravex.vercel.app/blog/siravex-3-3-recorder-reorder-prime</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
 </urlset>

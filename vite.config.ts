@@ -35,5 +35,21 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
   server: { host: '0.0.0.0', allowedHosts: true },
   preview: { host: '0.0.0.0', allowedHosts: true },
-  build: { sourcemap: false, chunkSizeWarningLimit: 1200 },
+  build: {
+    sourcemap: false, chunkSizeWarningLimit: 1200, reportCompressedSize: false,
+    rollupOptions: {
+      output: {
+        // Vendor splitting: browser in chunks ko alag cache karta hai — app
+        // update par sirf chhota app chunk dobara download hota hai, speed up.
+        manualChunks(id: string) {
+          if (id.includes('node_modules/hls.js')) return 'vendor-hls';
+          if (id.includes('node_modules/shaka-player')) return 'vendor-shaka';
+          if (id.includes('node_modules/mpegts.js')) return 'vendor-mpegts';
+          if (id.includes('node_modules/firebase') || id.includes('node_modules/@firebase')) return 'vendor-firebase';
+          if (id.includes('node_modules/react') || id.includes('node_modules/scheduler')) return 'vendor-react';
+          return undefined;
+        },
+      },
+    },
+  },
 });

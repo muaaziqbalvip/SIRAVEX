@@ -56,7 +56,7 @@ export interface EpgProgramme {
   end: number;
 }
 
-export interface Favourite { id: string; itemId: string; createdAt: number }
+export interface Favourite { id: string; itemId: string; createdAt: number; sortOrder?: number }
 export interface WatchProgress { itemId: string; position: number; duration: number; updatedAt: number; completed: boolean }
 export interface PlaybackDiagnostic { id: string; at: number; category: string; message: string; urlHost?: string }
 

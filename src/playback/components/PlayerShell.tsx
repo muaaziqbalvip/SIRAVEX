@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Camera, Check, ChevronLeft, ChevronRight, ExternalLink, Gauge, Heart, Maximize, Moon, Pause, PictureInPicture2, Play, Radio, RotateCcw, Settings2, Share2, Subtitles, Upload, Volume2, VolumeX, AudioLines, X } from 'lucide-react';
+import { Activity, Camera, Check, ChevronLeft, ChevronRight, Circle, ExternalLink, Gauge, Heart, Maximize, Moon, Pause, PictureInPicture2, Play, Radio, RotateCcw, Settings2, Share2, Square, Subtitles, Upload, Volume2, VolumeX, AudioLines, X } from 'lucide-react';
+import { StreamRecorder, RecorderError, REC_QUALITIES, MEMORY_WARN_BYTES, formatBytes, formatRecClock, safeFileBase, downloadRecording } from '@/lib/recorder';
 import { PlaybackEngine, type LoadOptions, type PlayerSnapshot } from '@/playback/engine';
 import { Button, formatTime } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
@@ -10,8 +11,10 @@ import { trackWatch, trackWatchMinute } from '@/services/firebase/tracking';
 import type { MediaItem } from '@/types/models';
 
 const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1, notice: '' };
-type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'more';
-const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = { quality: 'Video Quality', audio: 'Audio Track', subs: 'Subtitles', more: 'Speed, Sleep Timer & View' };
+type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'more' | 'rec';
+const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = { quality: 'Video Quality', audio: 'Audio Track', subs: 'Subtitles', more: 'Speed, Sleep Timer & View', rec: 'Stream Recorder' };
+
+interface SavePickerWindow { showSaveFilePicker: (o: unknown) => Promise<{ createWritable: () => Promise<unknown> }> }
 
 function langName(code?: string): string {
   if (!code) return '';
@@ -37,6 +40,14 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const [notice, setNotice] = useState('');
   const [statsOn, setStatsOn] = useState(false);
   const [sleepMin, setSleepMin] = useState(0);
+  const recorderRef = useRef<StreamRecorder | null>(null);
+  const recBaseRef = useRef('');
+  const [recState, setRecState] = useState<'idle' | 'recording' | 'paused'>('idle');
+  const [recBytes, setRecBytes] = useState(0);
+  const [recSecs, setRecSecs] = useState(0);
+  const [recQuality, setRecQuality] = useState('medium');
+  const [recToDisk, setRecToDisk] = useState(false);
+  const diskSupported = typeof window !== 'undefined' && typeof (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
   const [controlsVisible, setControlsVisible] = useState(true);
   const { settings, saveProgress, logDiagnostic, programmes, items, progress, toggleFavourite, isFavourite } = useStore();
   const fav = isFavourite(item.id);
@@ -75,6 +86,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     const video = videoRef.current;
     if (!video) return;
     resumedRef.current = false;
+    setRecState('idle'); setRecBytes(0); setRecSecs(0);
     const engine = new PlaybackEngine(video);
     engineRef.current = engine;
     const unsub = engine.subscribe((s) => {
@@ -97,6 +109,8 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       unsub(); engine.destroy(); engineRef.current = null;
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
       if (extSubUrl.current) { URL.revokeObjectURL(extSubUrl.current); extSubUrl.current = null; }
+      const rec = recorderRef.current;
+      if (rec && rec.state !== 'idle') { void rec.stop().then((r) => { if (r.blob) downloadRecording(r.blob, recBaseRef.current || 'siravex-recording', r.ext); }).catch(() => undefined); }
       video.querySelectorAll('track[data-siravex-ext]').forEach((t) => t.remove());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,6 +164,44 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [snap.state, snap.volume, poke]);
+
+  const startRecording = async () => {
+    const video = videoRef.current; if (!video) return;
+    const q = REC_QUALITIES.find((x) => x.id === recQuality) ?? REC_QUALITIES[1];
+    type Sink = { write: (d: Blob) => Promise<void>; close: () => Promise<void>; abort?: (r?: unknown) => Promise<void> };
+    let sink: Sink | null = null;
+    recBaseRef.current = safeFileBase(cleanTitle(item.title));
+    if (recToDisk && diskSupported) {
+      try {
+        const picker = (window as unknown as SavePickerWindow).showSaveFilePicker;
+        const handle = await picker({ suggestedName: `${recBaseRef.current}.webm`, types: [{ description: 'SIRAVEX recording', accept: { 'video/webm': ['.webm'], 'video/mp4': ['.mp4'] } }] });
+        sink = (await handle.createWritable()) as Sink;
+      } catch { setNotice('File select cancel ho gayi — recording start nahi hui.'); return; }
+    }
+    const rec = recorderRef.current ?? new StreamRecorder(); recorderRef.current = rec;
+    try {
+      const { mime } = await rec.start(video, { videoBitsPerSecond: q.videoBitsPerSecond, sink, onProgress: (b, s) => { setRecBytes(b); setRecSecs(s); } });
+      setRecState('recording'); setPanel('none');
+      setNotice(`Recording start — ${mime.includes('mp4') ? 'MP4' : 'WebM'} · ${q.label}. Sirf wahi content record karein jis ke rights aap ke paas hon.`);
+    } catch (e) {
+      if (sink?.abort) { try { await sink.abort(); } catch { /* ignore */ } }
+      setRecState('idle');
+      setNotice(e instanceof RecorderError ? e.message : 'Recording start nahi ho saki.');
+    }
+  };
+
+  const stopRecording = useCallback(async () => {
+    const rec = recorderRef.current; if (!rec || rec.state === 'idle') return;
+    try {
+      const r = await rec.stop();
+      setRecState('idle'); setRecBytes(0); setRecSecs(0);
+      if (r.streamedToDisk) setNotice(`Recording disk par save ho gayi — ${formatRecClock(r.seconds)} · ${formatBytes(r.bytes)}.`);
+      else if (r.blob) { downloadRecording(r.blob, recBaseRef.current || safeFileBase('siravex'), r.ext); setNotice(`Recording save ho gayi — ${formatRecClock(r.seconds)} · ${formatBytes(r.bytes)} (${r.ext.toUpperCase()}).`); }
+    } catch { setRecState('idle'); setNotice('Recording save karne me masla aya — dobara try karein.'); }
+  }, []);
+
+  // VOD khatam ho jaye to recording khud band + save
+  useEffect(() => { if (snap.state === 'ended' && recState !== 'idle') void stopRecording(); }, [snap.state, recState, stopRecording]);
 
   const eng = () => engineRef.current;
   const playing = snap.state === 'playing';
@@ -221,6 +273,39 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
         </div>
       );
     }
+    if (panel === 'rec') {
+      const active = recState !== 'idle';
+      return (
+        <div>
+          <p className="px-3 pb-2 text-xs leading-5 text-white/65">Jo video abhi chal raha hai, usi ko record karke file save hoti hai (browser-supported format: MP4 ya WebM). <strong className="text-white/90">Sirf wahi content record karein jis ke rights aap ke paas hon.</strong> Protected (DRM) ya kuch cross-origin streams par browser recording block kar deta hai — aisi surat me wajah yahin bata di jayegi.</p>
+          {!active && (
+            <>
+              <p className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-white/50">Recording quality</p>
+              <div className="grid gap-1" role="listbox" aria-label="Recording quality">{REC_QUALITIES.map((q) => optionRow({ id: q.id, label: q.label, sub: q.sub }, recQuality, setRecQuality))}</div>
+              {diskSupported && (
+                <button type="button" onClick={() => setRecToDisk(!recToDisk)} aria-pressed={recToDisk} className={`mt-2 flex min-h-[48px] w-full items-center justify-between rounded-xl px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${recToDisk ? 'bg-sky-500 text-white' : 'text-white/90 hover:bg-white/10'}`}>Direct disk par save (lambi recording ke liye) {recToDisk && <Check size={17} aria-hidden />}</button>
+              )}
+              <button type="button" onClick={() => void startRecording()} className="mt-3 flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-extrabold text-white shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Circle size={15} className="fill-white" aria-hidden />Start Recording</button>
+            </>
+          )}
+          {active && (
+            <>
+              <div className="mx-1 rounded-xl border border-red-500/40 bg-red-950/40 p-3 font-mono text-xs leading-6 text-red-100" role="status">
+                <p className="flex justify-between"><span>{recState === 'paused' ? 'PAUSED' : '● RECORDING'}</span><span>{formatRecClock(recSecs)}</span></p>
+                <p className="flex justify-between"><span>Size</span><span>{formatBytes(recBytes)}{recToDisk ? ' · disk' : ''}</span></p>
+              </div>
+              {!recToDisk && recBytes > MEMORY_WARN_BYTES && <p className="px-3 pt-2 text-xs leading-5 text-amber-300">Recording bohat bari ho gayi hai ({formatBytes(recBytes)}) — browser memory ki limit qareeb hai. Stop &amp; Save kar lein, ya agli dafa “Direct disk par save” on karein.</p>}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {recState === 'recording'
+                  ? <button type="button" onClick={() => { recorderRef.current?.pause(); setRecState('paused'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Pause size={16} aria-hidden />Pause</button>
+                  : <button type="button" onClick={() => { recorderRef.current?.resume(); setRecState('recording'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Play size={16} aria-hidden />Resume</button>}
+                <button type="button" onClick={() => void stopRecording()} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-extrabold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Square size={14} className="fill-white" aria-hidden />Stop &amp; Save</button>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
     return (
       <div>
         <p className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-white/50">Playback speed</p>
@@ -252,6 +337,12 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           <button type="button" onClick={() => setStatsOn(!statsOn)} aria-label="Toggle stream statistics" aria-pressed={statsOn} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${statsOn ? 'bg-sky-500' : 'bg-black/50'}`}><Activity size={18} /></button>
           {snap.live && <span className="inline-flex shrink-0 items-center gap-1.5 rounded bg-red-600 px-2 py-1 text-[11px] font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />LIVE</span>}
         </div>
+
+        {recState !== 'idle' && (
+          <button type="button" onClick={() => void stopRecording()} aria-label="Stop recording and save" className="absolute left-2.5 top-16 z-10 inline-flex items-center gap-2 rounded-full border border-red-400/50 bg-black/80 px-3 py-1.5 font-mono text-[11px] font-bold text-red-200 backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
+            <span className={`h-2 w-2 rounded-full bg-red-500 ${recState === 'recording' ? 'animate-pulse' : ''}`} />{recState === 'paused' ? 'REC PAUSED' : 'REC'} {formatRecClock(recSecs)} · {formatBytes(recBytes)}
+          </button>
+        )}
 
         {/* Stats overlay (asal numbers) */}
         {statsOn && (
@@ -315,6 +406,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
             <button type="button" onClick={() => togglePanel('audio')} aria-expanded={panel === 'audio'} aria-label="Audio tracks" className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><AudioLines size={18} /></button>
             <button type="button" onClick={() => togglePanel('subs')} aria-expanded={panel === 'subs'} aria-label="Subtitles" className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Subtitles size={18} /></button>
             <button type="button" onClick={() => togglePanel('more')} aria-expanded={panel === 'more'} aria-label="Speed, sleep timer and view options" className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Settings2 size={18} /></button>
+            <button type="button" onClick={() => (recState === 'idle' ? togglePanel('rec') : void stopRecording())} aria-label={recState === 'idle' ? 'Stream recorder — record current video' : `Stop recording (${formatRecClock(recSecs)})`} className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">{recState === 'idle' ? <Circle size={16} className="fill-red-500 text-red-500" aria-hidden /> : <Square size={14} className="animate-pulse fill-red-500 text-red-500" aria-hidden />}</button>
             <button type="button" onClick={async () => { try { await videoRef.current?.requestPictureInPicture(); } catch { setNotice('Picture-in-Picture is browser/stream par available nahi.'); } }} aria-label="Picture in picture" className="hidden h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx min-[480px]:grid"><PictureInPicture2 size={18} /></button>
             <button type="button" onClick={() => void wrapRef.current?.requestFullscreen?.().catch(() => undefined)} aria-label="Fullscreen" className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Maximize size={18} /></button>
           </div>

@@ -124,6 +124,22 @@ export const POSTS: BlogPost[] = [
       'Update as usual: the app announces new versions itself and clears the old cache for you.',
     ],
   },
+  {
+    slug: 'siravex-3-3-recorder-reorder-prime',
+    title: 'SIRAVEX 3.3 “Prime” — Stream Recorder, Drag-to-Reorder Favourites & Speed',
+    description: 'Ab jo chal raha hai use record karein (MP4/WebM, direct-disk ke sath), apne Favourites ko drag karke apni tartib me sajayein, aur vendor-chunk splitting se tez loading — 3.3 Prime ki poori kahani.',
+    date: '2026-10-29', tags: ['release', 'recorder', 'favourites', 'performance'],
+    body: [
+      '## Recorder — jo dekho, wahi save',
+      'Player me naya red ● Recorder hai: quality (High/Medium/Low) chunein, Start dabayein, aur Stop & Save par MP4/WebM file aap ke device par. Chrome/Edge me “Direct disk par save” ghanton ki recordings ko bhi halka rakhta hai kyunki file seedha disk par jati hai. REC chip par waqt aur size live nazar aata hai, VOD khatam hone par recording khud save ho jati hai. Imaandari wali baat wohi: DRM-protected ya capture-blocked streams par browser mana kar deta hai — SIRAVEX bypass nahi karta, wajah screen par likh deta hai.',
+      '## Favourites — ab aap ki tartib',
+      'Favourites page par “Reorder” mode: grip pakar kar drag karein, ↑ ↓ buttons, ya keyboard — har tabdeeli foran device par save. Jo channel aap sab se zyada dekhte hain, use sab se upar le ayein.',
+      '## Speed',
+      'Player engines (HLS/DASH/MPEG-TS) aur framework ab alag vendor chunks me hain — SIRAVEX update hone par browser sirf chhota app chunk dobara lata hai, bade engines cache se uthte hain. Sath me har page ke liye halki premium transition, taake app aur zyada smooth mehsoos ho.',
+      '## Usool wohi purana',
+      'Koi fake data nahi, koi DRM bypass nahi, private links kabhi log nahi hote. Agar koi stream phir bhi na chale, screen par likha error code Diagnostics me mil jata hai — wahi code bhej dein, fix usi ke mutabiq hoga.',
+    ],
+  },
 ];
 
 export function getPost(slug: string): BlogPost | undefined { return POSTS.find((p) => p.slug === slug); }

@@ -39,3 +39,10 @@ body.reduce-motion main > div { animation: none; }
 .nice-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .nice-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
 .nice-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* v3.3 premium motion: har page halki si fade-up transition ke sath khulta hai */
+.svx-page { animation: svx-fade-up .32s cubic-bezier(.22,.8,.32,1) both; }
+::selection { background: rgba(14,165,233,.4); }
+@media (prefers-reduced-motion: reduce) {
+  .svx-page { animation: none; }
+}

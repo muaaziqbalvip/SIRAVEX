@@ -8,9 +8,9 @@
 
 **Live TV · Movies · Series · EPG Guide · Xtream Codes · Play Any Stream**
 
-[![Version](https://img.shields.io/badge/version-3.1.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
+[![Version](https://img.shields.io/badge/version-3.2.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX/releases)
 [![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#-testing--qa)
-[![Tests](https://img.shields.io/badge/tests-51%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
+[![Tests](https://img.shields.io/badge/tests-56%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#-testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#-install-pwa)
@@ -33,6 +33,12 @@ SIRAVEX is an **installable PWA** for playing **your own authorized** IPTV and m
 > 🔒 **Privacy first:** everything lives in your browser (IndexedDB). Diagnostics and exports show **hosts only** — never full private URLs, tokens, or passwords.
 
 ---
+
+## 🌍 v3.2 “Relay” — multi-language audio fixed + guarded stream relay
+
+- **Multi-language audio streams play again:** mixed AAC + AC-3/E-AC-3 audio groups used to kill the *entire* stream in Chrome (hls.js issue #5378 — the browser's MSE cannot decode AC-3, and an unsupported default rendition poisons playback). SIRAVEX now **prefers a browser-supported (AAC) audio rendition from the start**, and if a codec/buffer error still hits, it **auto-switches to another audio track instead of dying** — with an on-screen notice telling you exactly what it did.
+- **Guarded server relay (`/api/relay`):** custom-port / CORS-blocked authorized servers (the `:5789` class) get one last chance through SIRAVEX's own Vercel relay — HLS/DASH manifests are rewritten segment-by-segment, media is piped with Range support, and SSRF is blocked (private/loopback hosts rejected, GET-only, 15s timeout, no cookies forwarded). Direct playback is always tried first; the relay is only the ladder's final rung and only exists in production builds.
+- Candidate building is now a tested pure module (`src/lib/candidates.ts`) — deep Xtream paths get same-server variants, shallow `/live/auto/…` multi-language endpoints go straight to relay instead of a guessed `.ts`.
 
 ## 🎛 v3.1 “Studio” — failover ladder, pro track capture & built-in guides
 
@@ -103,7 +109,7 @@ Rules the player follows: **nothing is faked.** If a source sends one rendition 
 ```bash
 npm install        # deps
 npm run dev        # http://localhost:5173
-npm test           # 51 tests
+npm test           # 56 tests
 npm run typecheck  # strict TypeScript
 npm run build      # production build → dist/
 ```
@@ -180,7 +186,7 @@ Full QA history, audits and honest limitations: [`docs/QA-REPORT.md`](docs/QA-RE
 
 ## 🧪 Testing & QA
 
-`npm test` — **51 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
+`npm test` — **56 Vitest tests** (M3U/XMLTV parsing, security helpers, format detection incl. audit regressions, Shaka error mapping + severity gate, subtitle conversion, UI primitives). `npm run typecheck` and `npm run build` are green; the generated service worker is inspected after every build.
 
 ## 📄 License
 

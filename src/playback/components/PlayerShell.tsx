@@ -9,7 +9,7 @@ import { isSubtitleFile, srtToVtt } from '@/lib/subtitles';
 import { trackWatch, trackWatchMinute } from '@/services/firebase/tracking';
 import type { MediaItem } from '@/types/models';
 
-const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1 };
+const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1, notice: '' };
 type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'more';
 const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = { quality: 'Video Quality', audio: 'Audio Track', subs: 'Subtitles', more: 'Speed, Sleep Timer & View' };
 
@@ -103,6 +103,12 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   }, [item.id, item.url]);
 
   useEffect(() => { if (panel === 'none') poke(snap.state === 'playing'); }, [snap.state, poke, panel]);
+
+  // Engine ki notice (masalan audio codec auto-switch) user ko dikhao
+  const noticeShown = useRef('');
+  useEffect(() => {
+    if (snap.notice && snap.notice !== noticeShown.current) { noticeShown.current = snap.notice; setNotice(snap.notice); }
+  }, [snap.notice]);
 
   // Deep tracking: pehli dafa play hone par watch event + har minute watch-time.
   // Sirf login users (tracking layer khud check karta hai); stream URL kabhi nahi jata.

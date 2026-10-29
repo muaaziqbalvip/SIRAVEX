@@ -3,6 +3,7 @@ import { formatOf, type StreamFormat } from './capabilities/capabilities';
 import { isShakaCritical, mapPlaybackError, type PlaybackErrorInfo } from './errors/mapper';
 import { normalizeStreamUrl } from '@/lib/security';
 import { formatBitrate } from '@/lib/clearkey';
+import { buildCandidates, type SourceCandidate } from '@/lib/candidates';
 
 export interface TrackOption { id: string; label: string; lang?: string }
 export interface QualityOption { id: string; label: string; height?: number; bitrate?: number }
@@ -15,7 +16,7 @@ export interface PlayerSnapshot {
   audioTracks: TrackOption[]; audioId: string; audioLabel: string;
   subtitleTracks: TrackOption[]; subtitleId: string;
   resolution: string; bitrateKbps: number; droppedFrames: number; totalFrames: number; behindLiveSec: number;
-  error: PlaybackErrorInfo | null; engine: string; format: string; attempt: number; attempts: number;
+  error: PlaybackErrorInfo | null; engine: string; format: string; attempt: number; attempts: number; notice: string;
 }
 
 type Listener = (s: PlayerSnapshot) => void;
@@ -64,13 +65,13 @@ export class PlaybackEngine {
   private adapter: AdapterKind = 'none';
   // Failover ladder (BarakatWave-style): aik source ke kai candidates —
   // HLS fail ho to usi server ka TS variant, extension-less par HLS→TS→native.
-  private candidates: { url: string; format: StreamFormat }[] = [];
+  private candidates: SourceCandidate[] = [];
   private candIdx = 0;
   private candOk = false;
   private watchdog: number | null = null;
   private lastOpts: LoadOptions = {};
   private primaryUrl = '';
-  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1 };
+  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1, notice: '' };
   currentUrl = '';
 
   constructor(video: HTMLVideoElement) {
@@ -96,7 +97,11 @@ export class PlaybackEngine {
   private set(p: Partial<PlayerSnapshot>) { if (this.destroyed) return; this.snap = { ...this.snap, ...p }; this.listeners.forEach((f) => f(this.snap)); }
   private isCurrent(seq: number): boolean { return !this.destroyed && seq === this.loadSeq; }
   private clearWatchdog(): void { if (this.watchdog) { window.clearTimeout(this.watchdog); this.watchdog = null; } }
-  private markCandidateOk(): void { this.candOk = true; this.clearWatchdog(); }
+  private markCandidateOk(): void {
+    this.candOk = true; this.clearWatchdog();
+    const cand = this.candidates[this.candIdx];
+    if (cand?.via === 'relay' && !this.snap.engine.includes('Relay')) this.set({ engine: `${this.snap.engine} · Relay` });
+  }
   /** Candidate fail: agar pehli kamyabi se pehle aur candidates baqi hain to agla try, warna asal error. */
   private candidateFailed(info: PlaybackErrorInfo, seq: number): void {
     if (!this.isCurrent(seq)) return;
@@ -190,17 +195,8 @@ export class PlaybackEngine {
     this.primaryUrl = url;
     const format: StreamFormat = formatOf(url, opts.forcedFormat);
     if (format === 'unsupported') { this.teardownAdapter(); this.set({ state: 'error', error: mapPlaybackError({ url, format }) }); return; }
-    // ---- Failover ladder tayyar karo ----
-    let path = url;
-    try { path = new URL(url).pathname.toLowerCase(); } catch { path = url.split('?')[0].toLowerCase(); }
-    const xtreamPath = /\/(live|movie|series)\//i.test(path);
-    const list: { url: string; format: StreamFormat }[] = [{ url, format }];
-    if (!opts.forcedFormat || opts.forcedFormat === 'auto') {
-      if (format === 'hls' && xtreamPath && path.endsWith('.m3u8')) list.push({ url: url.replace(/\.m3u8(?=(\?|#|$))/i, '.ts'), format: 'mpegts' });
-      else if (format === 'mpegts' && xtreamPath && path.endsWith('.ts')) list.push({ url: url.replace(/\.ts(?=(\?|#|$))/i, '.m3u8'), format: 'hls' });
-      else if (format === 'unknown') { list.splice(0, list.length, { url, format: 'hls' }, { url, format: 'mpegts' }, { url, format: 'native' }); }
-    }
-    this.candidates = list;
+    // ---- Failover ladder tayyar karo (relay sirf production mein, jahan /api/relay mojood hai) ----
+    this.candidates = buildCandidates(url, format, { forced: opts.forcedFormat, relay: import.meta.env.PROD === true });
     this.candIdx = 0;
     await this.startCandidate(seq);
   }
@@ -214,7 +210,7 @@ export class PlaybackEngine {
     this.candOk = false;
     this.currentUrl = cand.url;
     this.adapter = cand.format === 'hls' ? 'hls' : cand.format === 'dash' ? 'shaka' : cand.format === 'mpegts' || cand.format === 'flv' ? 'ts' : 'native';
-    this.set({ state: 'loading', error: null, engine: cand.format.toUpperCase(), format: cand.format, attempt: this.candIdx + 1, attempts: this.candidates.length, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', currentTime: 0, duration: 0, resolution: '—', bitrateKbps: 0 });
+    this.set({ state: 'loading', error: null, engine: cand.format.toUpperCase(), format: cand.format, attempt: this.candIdx + 1, attempts: this.candidates.length, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', currentTime: 0, duration: 0, resolution: '—', bitrateKbps: 0, notice: '' });
     this.clearWatchdog();
     this.watchdog = window.setTimeout(() => {
       if (this.isCurrent(seq) && !this.candOk) this.candidateFailed(mapPlaybackError({ message: 'timeout', url: cand.url }), seq);
@@ -244,11 +240,40 @@ export class PlaybackEngine {
     const hls = new HlsCtor({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 30, maxMaxBufferLength: 60, fragLoadingMaxRetry: 4, manifestLoadingMaxRetry: 2, levelLoadingMaxRetry: 4 });
     this.hls = hls;
     this.set({ engine: 'HLS.js' });
+    // Multi-language streams aksar AAC + AC-3/E-AC-3 audio renditions bhejte hain.
+    // Chrome ka MSE AC-3 nahi chala sakta — aur hls.js ka mashhoor bug (#5378) hai ke
+    // mixed-codec audio group mein DEFAULT track AC-3 ho to POORI stream fail ho jati hai.
+    // Is liye: supported-codec (AAC) audio ko pehle se tarjeeh, aur codec error par
+    // khud doosre audio track par switch — stream maregi nahi.
+    let audioPrefDone = false;
+    let audioRecovery = 0;
+    const audioCodecSupported = (codec?: string): boolean => {
+      if (!codec) return true;
+      try { return typeof MediaSource === 'undefined' || MediaSource.isTypeSupported(`audio/mp4; codecs="${codec}"`); } catch { return true; }
+    };
+    const switchToSupportedAudio = (reason: string): boolean => {
+      const raw = hls.audioTracks ?? [];
+      if (raw.length <= 1) return false;
+      const cur = hls.audioTrack;
+      const alt = raw.findIndex((tr, i) => i !== cur && audioCodecSupported(tr.audioCodec));
+      const next = alt >= 0 ? alt : (cur + 1) % raw.length;
+      if (next === cur) return false;
+      const from = raw[cur]; const to = raw[next];
+      hls.audioTrack = next;
+      this.set({ notice: `${reason}: "${from?.name || from?.lang || 'default'}" audio is browser par nahi chal sakta — "${to?.name || to?.lang || `Audio ${next + 1}`}" laga diya hai.` });
+      return true;
+    };
     const syncTracks = () => {
       if (!this.isCurrent(seq) || this.hls !== hls) return;
       const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }, ...hls.levels.map((l, i) => ({ id: String(i), label: `${l.height ? `${l.height}p` : `Level ${i + 1}`}${l.bitrate ? ` · ${formatBitrate(l.bitrate)}` : ''}`, height: l.height, bitrate: l.bitrate }))];
       const audioTracks: TrackOption[] = (hls.audioTracks ?? []).map((t, i) => ({ id: String(i), label: t.name || t.lang || `Audio ${i + 1}`, lang: t.lang }));
       const subtitleTracks: TrackOption[] = [{ id: 'off', label: 'Off' }, ...(hls.subtitleTracks ?? []).map((t, i) => ({ id: `hls-${i}`, label: t.name || t.lang || `Subtitle ${i + 1}`, lang: t.lang }))];
+      if (!audioPrefDone && (hls.audioTracks?.length ?? 0) > 1) {
+        audioPrefDone = true;
+        const raw = hls.audioTracks ?? [];
+        const curTrack = raw[hls.audioTrack] ?? raw[0];
+        if (curTrack && !audioCodecSupported(curTrack.audioCodec)) switchToSupportedAudio('Default audio codec');
+      }
       const audioLabel = audioTracks.find((t) => t.id === String(hls.audioTrack))?.label ?? this.snap.audioLabel;
       this.set({ qualities, audioTracks, audioLabel, audioId: hls.audioTrack >= 0 ? String(hls.audioTrack) : this.snap.audioId, subtitleTracks: subtitleTracks.length > 1 ? subtitleTracks : this.snap.subtitleTracks });
     };
@@ -271,6 +296,14 @@ export class PlaybackEngine {
     hls.on(HlsCtor.Events.ERROR, (_e, data) => {
       if (!this.isCurrent(seq)) return;
       if (!data.fatal) { if (data.details === HlsCtor.ErrorDetails.BUFFER_STALLED_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); } return; }
+      // Audio codec/load ki fatal ghalti: stream marne se pehle doosra audio track try karo
+      const isCodecErr = data.details === HlsCtor.ErrorDetails.BUFFER_ADD_CODEC_ERROR || data.details === HlsCtor.ErrorDetails.BUFFER_APPENDING_ERROR || data.details === HlsCtor.ErrorDetails.BUFFER_APPEND_ERROR;
+      const isAudioLoadErr = /audio/i.test(String(data.details)) && data.type === HlsCtor.ErrorTypes.NETWORK_ERROR;
+      if ((isCodecErr || isAudioLoadErr) && audioRecovery < 3 && switchToSupportedAudio('Audio codec masla')) {
+        audioRecovery++;
+        if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError(); else hls.startLoad();
+        return;
+      }
       if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) { networkRecoveries++; hls.startLoad(); return; }
       if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); return; }
       this.candidateFailed(mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }), seq);

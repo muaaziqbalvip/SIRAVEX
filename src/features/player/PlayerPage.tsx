@@ -1,20 +1,28 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Heart, ListVideo, Play, Star } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
-import { SafeImage } from '@/components/media/MediaCard';
+import { MediaCard, SafeImage } from '@/components/media/MediaCard';
+import { cleanTitle } from '@/lib/display';
 
 export function PlayerPage() {
   const { id } = useParams();
-  const { ready, items, playlists, toggleFavourite, isFavourite, progress, settings, loadSeriesEpisodes, toast } = useStore();
+  const { ready, items, playlists, programmes, toggleFavourite, isFavourite, progress, settings, loadSeriesEpisodes, toast } = useStore();
   const [epPass, setEpPass] = useState('');
   const [epBusy, setEpBusy] = useState(false);
   const item = items.find((i) => i.id === decodeURIComponent(id ?? ''));
+  const todayShows = useMemo(() => {
+    if (!item || item.kind !== 'live' || !item.tvgId) return [] as typeof programmes;
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    return programmes.filter((pr) => pr.channelId === item.tvgId && pr.end > dayStart.getTime() && pr.start < dayStart.getTime() + 86400000).sort((a, b) => a.start - b.start).slice(0, 20);
+  }, [programmes, item]);
   if (!ready) return <Skeleton className="aspect-video w-full" />;
   if (!item) return <EmptyState title="Item not found" body="This item may have been removed with its playlist. Your library is unchanged otherwise." action={<Link to="/"><Button>Back to Home</Button></Link>} />;
   const saved = progress.find((p) => p.itemId === item.id);
+  const sameGroupLive = item.kind === 'live' ? items.filter((i) => i.kind === 'live' && i.playlistId === item.playlistId && i.group === item.group && i.id !== item.id).slice(0, 24) : [];
+  const moreLike = item.kind === 'movie' ? items.filter((i) => i.kind === 'movie' && i.group === item.group && i.id !== item.id).slice(0, 12) : [];
   const fav = isFavourite(item.id);
   const episodes = item.kind === 'series' ? items.filter((i) => i.kind === 'series' && (i.seriesTitle ?? i.title) === (item.seriesTitle ?? item.title)).sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0)) : [];
   const idx = episodes.findIndex((e) => e.id === item.id);
@@ -46,7 +54,32 @@ export function PlayerPage() {
         <Button variant="outline" onClick={() => void toggleFavourite(item.id)} aria-pressed={fav}><Heart size={18} className={fav ? 'fill-red-400 text-red-400' : ''} aria-hidden />{fav ? 'Favourited' : 'Add to Favourites'}</Button>
       </div>
       {nextEp && <div className="mt-5 rounded-2xl border border-border bg-card p-4"><p className="text-sm"><strong>Next episode:</strong> {nextEp.title}</p><Link to={`/player/${encodeURIComponent(nextEp.id)}`}><Button className="mt-2">Play next episode</Button></Link></div>}
-      <div className="mt-5 grid gap-2 text-sm text-muted"><p><strong className="text-silver">Format help:</strong> HLS (.m3u8), DASH (.mpd) and browser-supported MP4/WebM play here. RTSP, RTMP and raw .ts cannot play directly in any browser and need an authorized HLS/DASH gateway from your provider. Protected/DRM content is never circumvented.</p></div>
+{sameGroupLive.length > 0 && (
+        <section aria-label="More channels in this group" className="mt-6">
+          <h2 className="mb-2 text-base font-extrabold">Same group — {cleanTitle(item.group) || 'Channels'}</h2>
+          <div className="scroll-row -mx-3 px-3 sm:mx-0 sm:px-0">{sameGroupLive.map((c) => <MediaCard key={c.id} item={c} />)}</div>
+        </section>
+      )}
+      {todayShows.length > 0 && (
+        <section aria-label="Today's schedule" className="mt-6">
+          <h2 className="mb-2 text-base font-extrabold">Today&rsquo;s schedule — {cleanTitle(item.title)}</h2>
+          <div className="grid gap-1.5">
+            {todayShows.map((pr) => { const now = Date.now(); const live = now >= pr.start && now < pr.end; return (
+              <div key={pr.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${live ? 'border-sky-500/50 bg-sky-950/40' : 'border-border bg-card'}`}>
+                <span className="w-[104px] shrink-0 text-xs tabular-nums text-muted">{new Date(pr.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(pr.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="min-w-0 flex-1 truncate font-semibold" title={pr.title}>{cleanTitle(pr.title)}</span>
+                {live && <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-extrabold text-white">ON NOW</span>}
+              </div> ); })}
+          </div>
+        </section>
+      )}
+      {moreLike.length > 0 && (
+        <section aria-label="More like this" className="mt-6">
+          <h2 className="mb-2 text-base font-extrabold">More in {cleanTitle(item.group) || 'this group'}</h2>
+          <div className="scroll-row -mx-3 px-3 sm:mx-0 sm:px-0">{moreLike.map((m) => <MediaCard key={m.id} item={m} />)}</div>
+        </section>
+      )}
+      <div className="mt-5 grid gap-2 text-sm text-muted"><p><strong className="text-silver">Format help:</strong> HLS (.m3u8), DASH (.mpd) and browser-supported MP4/WebM play here. MPEG-TS/FLV streams play inline via mpegts.js; RTSP/RTMP cannot play in any browser and need an authorized HLS/DASH gateway from your provider. DASH streams fail fast with the real Shaka error code (network, token/geo, manifest or DRM) — encrypted streams only play when you supply your provider-issued ClearKey/Widevine licence under Play Stream. Protected/DRM content is never circumvented.</p></div>
     </div>
   );
 }

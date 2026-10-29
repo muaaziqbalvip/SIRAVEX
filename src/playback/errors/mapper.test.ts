@@ -16,3 +16,32 @@ describe('mapPlaybackError', () => {
   });
   it('maps media code 4 to codec', () => { expect(mapPlaybackError({ code: 4 }).category).toBe('unsupported-codec'); });
 });
+
+describe('shaka error codes', () => {
+  it('maps network/HTTP failures with the real code', () => {
+    const r = mapPlaybackError({ shakaCode: 1002, url: 'https://hidden.example/live.mpd?a=1' });
+    expect(r.category).toBe('cors');
+    expect(r.codeLabel).toBe('DASH error 1002');
+    expect(r.message).not.toContain('hidden.example');
+  });
+  it('maps auth/token failures to a clear hint', () => {
+    const r = mapPlaybackError({ shakaCode: 1001 });
+    expect(r.category).toBe('auth');
+    expect(r.action).toMatch(/fresh link|Re-import/i);
+  });
+  it('maps DRM failures to the drm category with licence guidance', () => {
+    const r = mapPlaybackError({ shakaCode: 6001 });
+    expect(r.category).toBe('drm');
+    expect(r.action).toMatch(/licence|ClearKey/i);
+  });
+  it('maps key/restriction failures honestly', () => {
+    const r = mapPlaybackError({ shakaCode: 7000 });
+    expect(r.category).toBe('unsupported-format');
+    expect(r.action).toMatch(/licence keys/i);
+  });
+  it('still falls back safely for truly unknown inputs', () => {
+    const r = mapPlaybackError({ shakaCode: 42 });
+    expect(r.category).toBe('unknown');
+    expect(r.codeLabel).toBe('DASH error 42');
+  });
+});

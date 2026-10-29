@@ -6,9 +6,9 @@
 
 **Live TV · Movies · Series · EPG · Xtream Codes · Play Any Stream**
 
-[![Version](https://img.shields.io/badge/version-2.0.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX)
+[![Version](https://img.shields.io/badge/version-2.1.0-0ea5e9?style=for-the-badge&logo=semver&logoColor=white)](https://github.com/muaaziqbalvip/SIRAVEX)
 [![Build](https://img.shields.io/badge/build-passing-22c55e?style=for-the-badge&logo=vite&logoColor=white)](#testing--qa)
-[![Tests](https://img.shields.io/badge/tests-33%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#testing--qa)
+[![Tests](https://img.shields.io/badge/tests-40%20passing-22c55e?style=for-the-badge&logo=vitest&logoColor=white)](#testing--qa)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![PWA](https://img.shields.io/badge/PWA-installable-7c3aed?style=for-the-badge&logo=pwa&logoColor=white)](#install-pwa)
@@ -21,6 +21,13 @@
 </div>
 
 Installable PWA for playing **your own authorized** IPTV and media sources. SIRAVEX bundles **no** channels, movies, credentials or playlists. Demo content is limited to clearly labelled, legally usable sample streams (Big Buck Bunny / Tears of Steel test streams).
+
+## v2.1 — player reliability upgrade
+
+- **Bottom-sheet track panels** inside the player (Audio / Quality / Subtitles / More) — they can never be clipped at the screen edge again, and controls no longer auto-hide while a panel is open.
+- **Real DASH errors:** Shaka error codes are decoded (network/HTTP+auth, manifest, decode, DRM, restrictions) with a visible code chip — “unknown” only when the player truly reports nothing. Error screen can reopen the stream in Play Stream (via in-memory session prefill, never a URL).
+- **Honest single-rendition quality:** when a source sends one rendition, the menu says so and shows the real resolution/bitrate instead of a misleading empty list; multi-rendition labels now include bitrate (e.g. `720p · 2500k`).
+- **More IPTV functions:** Go Live (DVR catch-up), sleep timer, detailed stats overlay (bitrate, buffer, dropped-frame %), external `.srt`/`.vtt` subtitle file loading (converted in-browser), favourite toggle in the player top bar, same-group channel strip, today's EPG schedule on channel pages, related movies, slimmer dismissible install prompt, keyboard volume (↑/↓).
 
 ## Quick start
 

@@ -8,6 +8,20 @@
     <language>en</language>
     <lastBuildDate>Wed, 29 Oct 2026 00:00:00 GMT</lastBuildDate>
     <item>
+      <title>Building SIRAVEX from Kasur: One Developer, One Honest Player</title>
+      <link>https://siravex.vercel.app/blog/muaaz-iqbal-building-siravex</link>
+      <guid>https://siravex.vercel.app/blog/muaaz-iqbal-building-siravex</guid>
+      <pubDate>Wed, 29 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Muaaz Iqbal on why he built SIRAVEX, the Mizanora Projects philosophy, and the rule behind every feature: real or nothing.</description>
+    </item>
+    <item>
+      <title>SIRAVEX 3.1: Failover Ladder, Pro Track Capture &amp; the New Guides</title>
+      <link>https://siravex.vercel.app/blog/siravex-3-1-failover-tracks-guides</link>
+      <guid>https://siravex.vercel.app/blog/siravex-3-1-failover-tracks-guides</guid>
+      <pubDate>Wed, 29 Oct 2026 00:00:00 GMT</pubDate>
+      <description>Streams now retry across formats automatically, ClearKey accepts JWK, quality labels show real Mbps, and twelve guides are built in.</description>
+    </item>
+    <item>
       <title>How to Add Your IPTV Playlist to SIRAVEX (M3U &amp; Xtream Codes)</title>
       <link>https://siravex.vercel.app/blog/how-to-add-your-iptv-playlist</link>
       <guid>https://siravex.vercel.app/blog/how-to-add-your-iptv-playlist</guid>

@@ -5,6 +5,7 @@ import { Button, Card, Input, Select } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
 import { formatOf } from '@/playback/capabilities/capabilities';
 import { redactUrl, sanitizeUrl } from '@/lib/security';
+import { parseClearKeys } from '@/lib/clearkey';
 import type { MediaItem } from '@/types/models';
 import type { LoadOptions } from '@/playback/engine';
 
@@ -32,9 +33,9 @@ export function DirectPlayPage() {
     setError('');
     let opts: LoadOptions = { forcedFormat: format };
     if (clearKey.trim()) {
-      const [kid, key] = clearKey.split(':').map((s) => s.trim());
-      if (!kid || !key) { setError('ClearKey format ghalat hai — kid:key (hex) likhein.'); return; }
-      opts = { ...opts, clearKeys: { [kid]: key } };
+      const parsed = parseClearKeys(clearKey);
+      if (!parsed) { setError('ClearKey samajh nahi aya — kid:key (hex), {"kid":"key"} JSON, ya JWK keys format use karein.'); return; }
+      opts = { ...opts, clearKeys: parsed };
     }
     if (licenseUrl.trim()) {
       if (!sanitizeUrl(licenseUrl.trim())) { setError('License URL valid nahi hai.'); return; }
@@ -66,7 +67,7 @@ export function DirectPlayPage() {
         <details className="mt-3">
           <summary className="cursor-pointer text-sm font-semibold text-silver">Advanced — DASH DRM (sirf apne provider ki di hui keys)</summary>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <label className="block text-xs text-muted">ClearKey (kid:key hex)<Input value={clearKey} onChange={(e) => setClearKey(e.target.value)} placeholder="kid:key" autoComplete="off" className="mt-1" /></label>
+            <label className="block text-xs text-muted">ClearKey (kid:key · JSON · JWK)<Input value={clearKey} onChange={(e) => setClearKey(e.target.value)} placeholder="kid:key" autoComplete="off" className="mt-1" /></label>
             <label className="block text-xs text-muted">Widevine license URL<Input value={licenseUrl} onChange={(e) => setLicenseUrl(e.target.value)} placeholder="https://license.example/…" autoComplete="off" className="mt-1" /></label>
           </div>
           <p className="mt-1.5 text-[11px] leading-4 text-muted">Ye sirf woh keys configure karta hai jo aap khud dete hain (Shaka EME) — koi DRM bypass ya key extraction nahi hota.</p>

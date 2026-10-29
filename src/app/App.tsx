@@ -22,6 +22,8 @@ const LoginPage = lazy(() => import('@/features/auth/LoginPage').then((m) => ({ 
 const BlogPage = lazy(() => import('@/features/blog/BlogPages').then((m) => ({ default: m.BlogPage })));
 const BlogPostPage = lazy(() => import('@/features/blog/BlogPages').then((m) => ({ default: m.BlogPostPage })));
 const AdminPage = lazy(() => import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })));
+const GuidesPage = lazy(() => import('@/features/guides/GuidesPages').then((m) => ({ default: m.GuidesPage })));
+const GuidePage = lazy(() => import('@/features/guides/GuidesPages').then((m) => ({ default: m.GuidePage })));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -59,6 +61,8 @@ export function App() {
             <Route path="blog" element={<BlogPage />} />
             <Route path="blog/:slug" element={<BlogPostPage />} />
             <Route path="admin" element={<AdminPage />} />
+            <Route path="guides" element={<GuidesPage />} />
+            <Route path="guides/:slug" element={<GuidePage />} />
             <Route path="player/:id" element={<PlayerPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

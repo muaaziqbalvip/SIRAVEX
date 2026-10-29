@@ -9,7 +9,7 @@ import { isSubtitleFile, srtToVtt } from '@/lib/subtitles';
 import { trackWatch, trackWatchMinute } from '@/services/firebase/tracking';
 import type { MediaItem } from '@/types/models';
 
-const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none' };
+const IDLE: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1 };
 type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'more';
 const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = { quality: 'Video Quality', audio: 'Audio Track', subs: 'Subtitles', more: 'Speed, Sleep Timer & View' };
 
@@ -261,7 +261,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
 
         {(snap.state === 'loading' || snap.state === 'buffering') && (
           <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center" role="status" aria-label={snap.state}>
-            <span className="grid place-items-center gap-2"><span className="h-12 w-12 animate-spin rounded-full border-[3px] border-white/25 border-t-cyan-300" /><span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">{snap.state === 'loading' ? 'Loading stream…' : 'Buffering…'}</span></span>
+            <span className="grid place-items-center gap-2"><span className="h-12 w-12 animate-spin rounded-full border-[3px] border-white/25 border-t-cyan-300" /><span className="rounded-full bg-black/60 px-3 py-1 text-xs text-white">{snap.state === 'loading' ? `Loading stream…${snap.attempts > 1 ? ` (source ${snap.attempt}/${snap.attempts})` : ''}` : 'Buffering…'}</span></span>
           </div>
         )}
         {!playing && snap.state !== 'loading' && snap.state !== 'buffering' && snap.state !== 'error' && panel === 'none' && (
@@ -338,7 +338,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           ['Dropped', `${snap.droppedFrames} frames`],
           ['Speed', `${snap.rate}×`],
           ...(sleepMin > 0 ? [['Sleep', `${sleepMin}m`]] : []),
-          ['State', snap.state],
+          ['State', snap.attempts > 1 ? `${snap.state} · try ${snap.attempt}/${snap.attempts}` : snap.state],
         ].map(([k, v]) => (
           <span key={k} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]"><span className="font-semibold uppercase tracking-wide text-muted">{k}</span><strong className="max-w-[150px] truncate text-silver">{v}</strong></span>
         ))}

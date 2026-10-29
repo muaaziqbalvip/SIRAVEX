@@ -2,6 +2,7 @@ import type Hls from 'hls.js';
 import { formatOf, type StreamFormat } from './capabilities/capabilities';
 import { isShakaCritical, mapPlaybackError, type PlaybackErrorInfo } from './errors/mapper';
 import { normalizeStreamUrl } from '@/lib/security';
+import { formatBitrate } from '@/lib/clearkey';
 
 export interface TrackOption { id: string; label: string; lang?: string }
 export interface QualityOption { id: string; label: string; height?: number; bitrate?: number }
@@ -14,7 +15,7 @@ export interface PlayerSnapshot {
   audioTracks: TrackOption[]; audioId: string; audioLabel: string;
   subtitleTracks: TrackOption[]; subtitleId: string;
   resolution: string; bitrateKbps: number; droppedFrames: number; totalFrames: number; behindLiveSec: number;
-  error: PlaybackErrorInfo | null; engine: string; format: string;
+  error: PlaybackErrorInfo | null; engine: string; format: string; attempt: number; attempts: number;
 }
 
 type Listener = (s: PlayerSnapshot) => void;
@@ -56,24 +57,31 @@ export class PlaybackEngine {
   private shakaPlayer: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private tsPlayer: any = null;
-  private retries = 0;
   private listeners = new Set<Listener>();
   private bound: [string, EventListener][] = [];
   private destroyed = false;
   private loadSeq = 0;
   private adapter: AdapterKind = 'none';
-  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none' };
+  // Failover ladder (BarakatWave-style): aik source ke kai candidates —
+  // HLS fail ho to usi server ka TS variant, extension-less par HLS→TS→native.
+  private candidates: { url: string; format: StreamFormat }[] = [];
+  private candIdx = 0;
+  private candOk = false;
+  private watchdog: number | null = null;
+  private lastOpts: LoadOptions = {};
+  private primaryUrl = '';
+  snap: PlayerSnapshot = { state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false, muted: false, volume: 1, rate: 1, bufferedEnd: 0, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', resolution: '—', bitrateKbps: 0, droppedFrames: 0, totalFrames: 0, behindLiveSec: 0, error: null, engine: 'none', format: 'none', attempt: 1, attempts: 1 };
   currentUrl = '';
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
     const on = (name: string, fn: () => void) => { const f = fn as EventListener; video.addEventListener(name, f); this.bound.push([name, f]); };
     on('play', () => this.set({ state: 'playing' }));
-    on('playing', () => this.set({ state: 'playing' }));
+    on('playing', () => { this.markCandidateOk(); this.set({ state: 'playing' }); });
     on('pause', () => this.set({ state: 'paused' }));
     on('waiting', () => this.set({ state: 'buffering' }));
     on('ended', () => this.set({ state: 'ended' }));
-    on('canplay', () => { if (this.snap.state === 'loading') this.set({ state: 'ready' }); this.emit(); });
+    on('canplay', () => { this.markCandidateOk(); if (this.snap.state === 'loading') this.set({ state: 'ready' }); this.emit(); });
     on('loadedmetadata', () => this.emit());
     on('resize', () => this.emit());
     on('timeupdate', () => this.emit());
@@ -87,6 +95,15 @@ export class PlaybackEngine {
   subscribe(fn: Listener): () => void { this.listeners.add(fn); fn(this.snap); return () => this.listeners.delete(fn); }
   private set(p: Partial<PlayerSnapshot>) { if (this.destroyed) return; this.snap = { ...this.snap, ...p }; this.listeners.forEach((f) => f(this.snap)); }
   private isCurrent(seq: number): boolean { return !this.destroyed && seq === this.loadSeq; }
+  private clearWatchdog(): void { if (this.watchdog) { window.clearTimeout(this.watchdog); this.watchdog = null; } }
+  private markCandidateOk(): void { this.candOk = true; this.clearWatchdog(); }
+  /** Candidate fail: agar pehli kamyabi se pehle aur candidates baqi hain to agla try, warna asal error. */
+  private candidateFailed(info: PlaybackErrorInfo, seq: number): void {
+    if (!this.isCurrent(seq)) return;
+    this.clearWatchdog();
+    if (!this.candOk && this.candIdx < this.candidates.length - 1) { this.candIdx++; void this.startCandidate(seq); return; }
+    this.set({ state: 'error', error: info });
+  }
 
   /** External subtitle file ke text-track indices (sirf <track data-siravex-ext> wale). */
   private externalTrackIndices(): Set<number> {
@@ -159,37 +176,63 @@ export class PlaybackEngine {
     if (this.destroyed || this.adapter !== 'native') return;
     const err = this.video.error;
     if (!err) return;
-    if (this.retries < 1 && this.currentUrl) { this.retries++; void this.load(this.currentUrl, { resetRetry: false }); return; }
-    this.set({ state: 'error', error: mapPlaybackError({ code: err.code, message: err.message, url: this.currentUrl }) });
+    this.candidateFailed(mapPlaybackError({ code: err.code, message: err.message, url: this.currentUrl }), this.loadSeq);
   }
 
   async load(rawUrl: string, opts: LoadOptions & { resetRetry?: boolean } = {}): Promise<void> {
     const seq = ++this.loadSeq;
-    if (opts.resetRetry !== false) this.retries = 0;
-    this.teardownAdapter();
+    this.lastOpts = opts;
+    this.clearWatchdog();
     if (!this.isCurrent(seq)) return;
     // Forced format ka matlab: user ne khud kaha hai ye .ts hai — Xtream
     // .ts->.m3u8 rewrite yahan URL kharab kar deta tha, is liye skip.
     const url = opts.forcedFormat && opts.forcedFormat !== 'auto' ? rawUrl : normalizeStreamUrl(rawUrl);
-    this.currentUrl = url;
+    this.primaryUrl = url;
     const format: StreamFormat = formatOf(url, opts.forcedFormat);
-    this.adapter = format === 'hls' ? 'hls' : format === 'dash' ? 'shaka' : format === 'mpegts' || format === 'flv' ? 'ts' : 'native';
-    this.set({ state: 'loading', error: null, engine: format.toUpperCase(), format, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', currentTime: 0, duration: 0, resolution: '—', bitrateKbps: 0 });
-    if (format === 'unsupported') { this.set({ state: 'error', error: mapPlaybackError({ url, format }) }); return; }
+    if (format === 'unsupported') { this.teardownAdapter(); this.set({ state: 'error', error: mapPlaybackError({ url, format }) }); return; }
+    // ---- Failover ladder tayyar karo ----
+    let path = url;
+    try { path = new URL(url).pathname.toLowerCase(); } catch { path = url.split('?')[0].toLowerCase(); }
+    const xtreamPath = /\/(live|movie|series)\//i.test(path);
+    const list: { url: string; format: StreamFormat }[] = [{ url, format }];
+    if (!opts.forcedFormat || opts.forcedFormat === 'auto') {
+      if (format === 'hls' && xtreamPath && path.endsWith('.m3u8')) list.push({ url: url.replace(/\.m3u8(?=(\?|#|$))/i, '.ts'), format: 'mpegts' });
+      else if (format === 'mpegts' && xtreamPath && path.endsWith('.ts')) list.push({ url: url.replace(/\.ts(?=(\?|#|$))/i, '.m3u8'), format: 'hls' });
+      else if (format === 'unknown') { list.splice(0, list.length, { url, format: 'hls' }, { url, format: 'mpegts' }, { url, format: 'native' }); }
+    }
+    this.candidates = list;
+    this.candIdx = 0;
+    await this.startCandidate(seq);
+  }
+
+  /** Ladder ka aik candidate chalao + 15s watchdog (playing/canplay = kamyab). */
+  private async startCandidate(seq: number): Promise<void> {
+    const cand = this.candidates[this.candIdx];
+    if (!cand) return;
+    this.teardownAdapter();
+    if (!this.isCurrent(seq)) return;
+    this.candOk = false;
+    this.currentUrl = cand.url;
+    this.adapter = cand.format === 'hls' ? 'hls' : cand.format === 'dash' ? 'shaka' : cand.format === 'mpegts' || cand.format === 'flv' ? 'ts' : 'native';
+    this.set({ state: 'loading', error: null, engine: cand.format.toUpperCase(), format: cand.format, attempt: this.candIdx + 1, attempts: this.candidates.length, qualities: [], qualityId: 'auto', currentQualityLabel: 'Auto', audioTracks: [], audioId: '', audioLabel: 'Default', subtitleTracks: [{ id: 'off', label: 'Off' }], subtitleId: 'off', currentTime: 0, duration: 0, resolution: '—', bitrateKbps: 0 });
+    this.clearWatchdog();
+    this.watchdog = window.setTimeout(() => {
+      if (this.isCurrent(seq) && !this.candOk) this.candidateFailed(mapPlaybackError({ message: 'timeout', url: cand.url }), seq);
+    }, 15000);
     try {
-      const nativeHls = format === 'hls' && this.video.canPlayType('application/vnd.apple.mpegurl') !== '';
-      if (format === 'hls' && !nativeHls) await this.loadHls(url, seq);
-      else if (format === 'dash') await this.loadDash(url, opts, seq);
-      else if (format === 'mpegts' || format === 'flv') await this.loadTs(url, format, seq);
+      const nativeHls = cand.format === 'hls' && this.video.canPlayType('application/vnd.apple.mpegurl') !== '';
+      if (cand.format === 'hls' && !nativeHls) await this.loadHls(cand.url, seq);
+      else if (cand.format === 'dash') await this.loadDash(cand.url, this.lastOpts, seq);
+      else if (cand.format === 'mpegts' || cand.format === 'flv') await this.loadTs(cand.url, cand.format, seq);
       else {
         this.set({ engine: nativeHls ? 'Native (Safari)' : 'Native' });
-        this.video.preload = 'auto'; this.video.src = url; this.video.load();
+        this.video.preload = 'auto'; this.video.src = cand.url; this.video.load();
       }
     } catch (e) {
       if (!this.isCurrent(seq)) return; // purana load — naya channel chal raha hai, iski error mat dikhao
       const errObj = e as { code?: number; message?: string } | null;
       const shakaCode = typeof errObj?.code === 'number' ? errObj.code : undefined;
-      this.set({ state: 'error', error: mapPlaybackError({ shakaCode, message: e instanceof Error ? e.message : errObj?.message, url }) });
+      this.candidateFailed(mapPlaybackError({ shakaCode, message: e instanceof Error ? e.message : errObj?.message, url: cand.url }), seq);
     }
   }
 
@@ -197,13 +240,13 @@ export class PlaybackEngine {
     const mod = await import('hls.js');
     if (!this.isCurrent(seq)) return;
     const HlsCtor = mod.default;
-    if (!HlsCtor.isSupported()) { this.set({ state: 'error', error: mapPlaybackError({ message: 'format not supported', url }) }); return; }
+    if (!HlsCtor.isSupported()) { this.candidateFailed(mapPlaybackError({ message: 'format not supported', url }), seq); return; }
     const hls = new HlsCtor({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 30, maxMaxBufferLength: 60, fragLoadingMaxRetry: 4, manifestLoadingMaxRetry: 2, levelLoadingMaxRetry: 4 });
     this.hls = hls;
     this.set({ engine: 'HLS.js' });
     const syncTracks = () => {
       if (!this.isCurrent(seq) || this.hls !== hls) return;
-      const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }, ...hls.levels.map((l, i) => ({ id: String(i), label: `${l.height ? `${l.height}p` : `Level ${i + 1}`}${l.bitrate ? ` · ${Math.round(l.bitrate / 1000)}k` : ''}`, height: l.height, bitrate: l.bitrate }))];
+      const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }, ...hls.levels.map((l, i) => ({ id: String(i), label: `${l.height ? `${l.height}p` : `Level ${i + 1}`}${l.bitrate ? ` · ${formatBitrate(l.bitrate)}` : ''}`, height: l.height, bitrate: l.bitrate }))];
       const audioTracks: TrackOption[] = (hls.audioTracks ?? []).map((t, i) => ({ id: String(i), label: t.name || t.lang || `Audio ${i + 1}`, lang: t.lang }));
       const subtitleTracks: TrackOption[] = [{ id: 'off', label: 'Off' }, ...(hls.subtitleTracks ?? []).map((t, i) => ({ id: `hls-${i}`, label: t.name || t.lang || `Subtitle ${i + 1}`, lang: t.lang }))];
       const audioLabel = audioTracks.find((t) => t.id === String(hls.audioTrack))?.label ?? this.snap.audioLabel;
@@ -230,7 +273,7 @@ export class PlaybackEngine {
       if (!data.fatal) { if (data.details === HlsCtor.ErrorDetails.BUFFER_STALLED_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); } return; }
       if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) { networkRecoveries++; hls.startLoad(); return; }
       if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) { mediaRecoveries++; hls.recoverMediaError(); return; }
-      this.set({ state: 'error', error: mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }) });
+      this.candidateFailed(mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }), seq);
     });
     hls.attachMedia(this.video);
     hls.on(HlsCtor.Events.MEDIA_ATTACHED, () => { if (this.isCurrent(seq) && this.hls === hls) hls.loadSource(url); });
@@ -242,7 +285,7 @@ export class PlaybackEngine {
     if (!this.isCurrent(seq)) return;
     const shaka = mod.default ?? mod;
     shaka.polyfill.installAll();
-    if (!shaka.isBrowserSupported()) { this.set({ state: 'error', error: mapPlaybackError({ message: 'format not supported', url }) }); return; }
+    if (!shaka.isBrowserSupported()) { this.candidateFailed(mapPlaybackError({ message: 'format not supported', url }), seq); return; }
     const player = new shaka.Player();
     this.shakaPlayer = player;
     await player.attach(this.video);
@@ -258,7 +301,7 @@ export class PlaybackEngine {
         const variants = (player.getVariantTracks() as { id: number; height?: number; bandwidth?: number; active: boolean; audioLanguage?: string; audioRoles?: string[] }[]) ?? [];
         const seen = new Set<number>();
         const qualities: QualityOption[] = [{ id: 'auto', label: 'Auto' }];
-        for (const v of variants) { if (v.height && !seen.has(v.height)) { seen.add(v.height); qualities.push({ id: `h-${v.height}`, label: `${v.height}p${v.bandwidth ? ` · ${Math.round(v.bandwidth / 1000)}k` : ''}`, height: v.height, bitrate: v.bandwidth }); } }
+        for (const v of variants) { if (v.height && !seen.has(v.height)) { seen.add(v.height); qualities.push({ id: `h-${v.height}`, label: `${v.height}p${v.bandwidth ? ` · ${formatBitrate(v.bandwidth)}` : ''}`, height: v.height, bitrate: v.bandwidth }); } }
         qualities.sort((a, b) => (b.height ?? 0) - (a.height ?? 0));
         // Audio: language + role — aik hi language ke kai roles ho sakte hain,
         // id mein role bhi hai taake selectAudioLanguage durust variant chune.
@@ -293,7 +336,7 @@ export class PlaybackEngine {
       // kholna "har cheez error hai" wali shikayat ki asal wajah thi.
       if (!isShakaCritical(detail)) return;
       const code = typeof detail?.code === 'number' ? detail.code : undefined;
-      this.set({ state: 'error', error: mapPlaybackError({ shakaCode: code, message: detail?.message, url }) });
+      this.candidateFailed(mapPlaybackError({ shakaCode: code, message: detail?.message, url }), seq);
     });
     await player.load(url);
     if (!this.isCurrent(seq)) return;
@@ -306,13 +349,12 @@ export class PlaybackEngine {
     const mod: any = await import('mpegts.js');
     if (!this.isCurrent(seq)) return;
     const Mpegts = mod.default ?? mod;
-    if (!Mpegts.isSupported()) { this.set({ state: 'error', error: mapPlaybackError({ message: 'format not supported', url }) }); return; }
+    if (!Mpegts.isSupported()) { this.candidateFailed(mapPlaybackError({ message: 'format not supported', url }), seq); return; }
     const player = Mpegts.createPlayer({ type: format === 'flv' ? 'flv' : 'mpegts', isLive: true, url }, { enableWorker: true, enableStashBuffer: false, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 8, liveBufferLatencyMinRemain: 2 });
     this.tsPlayer = player;
     player.on(Mpegts.Events.ERROR, () => {
       if (!this.isCurrent(seq)) return;
-      if (this.retries < 1) { this.retries++; void this.load(url, { resetRetry: false }); return; }
-      this.set({ state: 'error', error: mapPlaybackError({ message: 'network', url }) });
+      this.candidateFailed(mapPlaybackError({ message: 'network', url }), seq);
     });
     player.attachMediaElement(this.video);
     player.load();
@@ -416,12 +458,12 @@ export class PlaybackEngine {
     this.emit();
   }
 
-  retry(): void { if (this.currentUrl) void this.load(this.currentUrl); }
+  retry(): void { if (this.primaryUrl) void this.load(this.primaryUrl, this.lastOpts); }
   private teardownAdapter() {
     try { this.hls?.destroy(); } catch { /* noop */ } this.hls = null;
     if (this.shakaPlayer) { const p = this.shakaPlayer; this.shakaPlayer = null; void Promise.resolve(p.destroy?.()).catch(() => undefined); }
     if (this.tsPlayer) { try { this.tsPlayer.destroy(); } catch { /* noop */ } this.tsPlayer = null; }
     if (this.video.getAttribute('src')) { this.video.removeAttribute('src'); try { this.video.load(); } catch { /* noop */ } }
   }
-  destroy(): void { this.destroyed = true; this.loadSeq++; this.teardownAdapter(); this.bound.forEach(([n, f]) => this.video.removeEventListener(n, f)); this.bound = []; this.listeners.clear(); }
+  destroy(): void { this.destroyed = true; this.loadSeq++; this.clearWatchdog(); this.teardownAdapter(); this.bound.forEach(([n, f]) => this.video.removeEventListener(n, f)); this.bound = []; this.listeners.clear(); }
 }

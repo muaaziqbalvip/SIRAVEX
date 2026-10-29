@@ -87,6 +87,43 @@ export const POSTS: BlogPost[] = [
       '- Uninstalling the app or clearing site data removes your local playlists, so keep your original M3U file safe.',
     ],
   },
+  {
+    slug: 'muaaz-iqbal-building-siravex',
+    title: 'Building SIRAVEX from Kasur: One Developer, One Honest Player',
+    description: 'Muaaz Iqbal on why he built SIRAVEX, the Mizanora Projects philosophy, and the rule behind every feature: real or nothing.',
+    date: '2026-10-29', tags: ['founder', 'muaaz-iqbal', 'story'],
+    body: [
+      'Assalam-o-Alaikum, I am Muaaz Iqbal — an independent developer from Kasur, Punjab, Pakistan, building open-source media and AI products under Mizanora Projects (BarakatWave TV, Mizanora TV, Asaan Lang, MI Trade Master, and now SIRAVEX).',
+      '## Why another IPTV player?',
+      'Because most players I tried did one of two dishonest things: they showed quality and audio menus that did nothing, or they failed with a spinner and no explanation. A player should show you exactly what your stream contains — every rendition, every audio track, every subtitle — and when something fails, it should tell you the real reason and the real error code.',
+      '## The SIRAVEX rule: real or nothing',
+      '- If a source sends one rendition, the menu says so. No fake 1080p buttons.',
+      '- If a stream is DRM-protected, the player names it and tells you how a legitimate licence is added. Nothing is bypassed, ever.',
+      '- If your token expired, you see the code (DASH error 1001) instead of an endless spinner.',
+      '- Your playlists live on your device. With accounts, only channel names and watch time sync — stream URLs and passwords are never collected.',
+      '## Built in the open',
+      'SIRAVEX is MIT-licensed and developed in public. Every release is audited: the v2.2 audit found and fixed eleven real playback bugs, and v3 added accounts, an admin dashboard and this blog. If you find a bug, open a GitHub issue with the error code from the player — that code is all I need to help.',
+      'Shukriya for using SIRAVEX. — Muaaz',
+    ],
+  },
+  {
+    slug: 'siravex-3-1-failover-tracks-guides',
+    title: 'SIRAVEX 3.1: Failover Ladder, Pro Track Capture & the New Guides',
+    description: 'What changed in 3.1: streams now retry across formats automatically, ClearKey accepts JWK, quality labels show real Mbps, and twelve step-by-step guides are built in.',
+    date: '2026-10-29', tags: ['release', 'update', 'player'],
+    body: [
+      'SIRAVEX 3.1 focuses on one thing: more streams playing, more honestly.',
+      '## Failover ladder',
+      'When a stream does not start, the player no longer gives up after one attempt. Xtream HLS sources fall back to the same server’s MPEG-TS variant, and extension-less links walk an HLS → TS → Native chain — each with a 15-second watchdog. The loading screen tells you which source is being tried (source 2/3).',
+      '## Track capture, upgraded',
+      '- Quality labels now show real bandwidth in Mbps exactly as the manifest reports it (1080p · 4.2 Mbps).',
+      '- ClearKey in Play Stream accepts kid:key, JSON maps and full JWK key sets — the formats providers actually hand out.',
+      '- Audio and subtitle selection stays engine-exclusive (the v2.2 fix), so the track you tap is the track you hear.',
+      '## Guides built in',
+      'Twelve step-by-step guides now live inside the app under Guides: installation on Android, iPhone, desktop and Smart TV, playlist and Xtream setup, a full player manual, EPG setup, troubleshooting by error code, account/admin, and privacy.',
+      'Update as usual: the app announces new versions itself and clears the old cache for you.',
+    ],
+  },
 ];
 
 export function getPost(slug: string): BlogPost | undefined { return POSTS.find((p) => p.slug === slug); }

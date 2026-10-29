@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv><channel id="demo1"><display-name>Fixture News</display-name></channel>
+<programme channel="demo1" start="20260101100000 +0000" stop="20260101110000 +0000"><title>Fixture News Hour</title><desc>Synthetic test programme.</desc></programme></tv>

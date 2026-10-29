@@ -1,0 +1,78 @@
+export type MediaKind = 'live' | 'movie' | 'series';
+export type SourceType = 'file' | 'url' | 'xtream' | 'demo';
+
+export interface PlaylistSource {
+  id: string;
+  name: string;
+  type: SourceType;
+  url?: string; // never log in full; may contain credentials for xtream-derived urls
+  server?: string;
+  username?: string;
+  hasPassword?: boolean;
+  enabled: boolean;
+  isDefault: boolean;
+  itemCount: number;
+  createdAt: number;
+  lastImportedAt?: number;
+  lastError?: string;
+}
+
+export interface MediaItem {
+  id: string;
+  playlistId: string;
+  kind: MediaKind;
+  title: string;
+  url: string;
+  logo?: string;
+  poster?: string;
+  group: string;
+  tvgId?: string;
+  year?: number;
+  genre?: string;
+  description?: string;
+  seriesTitle?: string;
+  season?: number;
+  episode?: number;
+}
+
+export interface EpgProgramme {
+  id: string;
+  channelId: string;
+  title: string;
+  description?: string;
+  start: number;
+  end: number;
+}
+
+export interface Favourite { id: string; itemId: string; createdAt: number }
+export interface WatchProgress { itemId: string; position: number; duration: number; updatedAt: number; completed: boolean }
+export interface PlaybackDiagnostic { id: string; at: number; category: string; message: string; urlHost?: string }
+
+export interface AppSettings {
+  theme: 'dark' | 'light' | 'system';
+  accent: 'sky' | 'cyan' | 'violet' | 'emerald';
+  density: 'comfortable' | 'compact';
+  reducedMotion: boolean;
+  autoplay: boolean;
+  resumePlayback: boolean;
+  defaultVolume: number;
+  playbackSpeed: number;
+  audioLanguage: string;
+  subtitleLanguage: string;
+  subtitleSize: 'small' | 'medium' | 'large';
+  subtitleColor: string;
+  defaultHome: string;
+  librarySort: 'title' | 'recent' | 'group';
+  liveLayout: 'list' | 'grid';
+  saveRecentSearches: boolean;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark', accent: 'sky', density: 'comfortable', reducedMotion: false,
+  autoplay: false, resumePlayback: true, defaultVolume: 0.8, playbackSpeed: 1,
+  audioLanguage: '', subtitleLanguage: '', subtitleSize: 'medium', subtitleColor: '#ffffff',
+  defaultHome: '/', librarySort: 'title', liveLayout: 'list', saveRecentSearches: true,
+};
+
+export interface ParseReport { total: number; imported: number; warnings: string[]; errors: string[] }
+export interface ParsedPlaylist { items: Omit<MediaItem, 'id' | 'playlistId'>[]; report: ParseReport }

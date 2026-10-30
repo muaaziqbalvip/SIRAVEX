@@ -52,7 +52,62 @@ type HlsInstance = InstanceType<typeof Hls>;
 type AdapterKind = 'none' | 'hls' | 'shaka' | 'ts' | 'native';
 
 const MAX_AUTO_RECONNECTS = 4;
-const RECONNECT_DELAYS_MS = [1500, 3000, 6000, 10000];
+const RECONNECT_DELAYS_MS = [1200, 2500, 5000, 9000];
+
+/**
+ * Per-host route memory: remembers whether a provider host succeeded via `direct` or `relay`
+ * (and which container format won) so channel #2, #3, #4… on the same IPTV panel open on
+ * Attempt #1 in ~300–500ms without re-testing blocked CORS routes.
+ */
+interface HostRouteHint {
+  via: 'direct' | 'relay';
+  format: StreamFormat;
+  at: number;
+}
+const HOST_HINT_TTL_MS = 30 * 60_000;
+const hostRouteMemory = new Map<string, HostRouteHint>();
+
+function hostKeyOf(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).origin.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+export function prioritizeCandidatesForHost(rawUrl: string, list: SourceCandidate[]): SourceCandidate[] {
+  if (list.length <= 1) return list;
+  const key = hostKeyOf(rawUrl);
+  if (!key) return list;
+  const hint = hostRouteMemory.get(key);
+  if (!hint || Date.now() - hint.at > HOST_HINT_TTL_MS) return list;
+  const exactIdx = list.findIndex((c) => c.via === hint.via && c.format === hint.format);
+  const viaIdx = exactIdx >= 0 ? exactIdx : list.findIndex((c) => c.via === hint.via);
+  if (viaIdx <= 0) return list;
+  const copy = [...list];
+  const [winner] = copy.splice(viaIdx, 1);
+  return [winner, ...copy];
+}
+
+export function clearHostRouteMemory(): void {
+  hostRouteMemory.clear();
+}
+
+let warmedEngines = false;
+/** Pre-loads HLS.js & mpegts.js in background idle time so channel clicks have 0ms bundle delay. */
+export function warmPlaybackEngines(): void {
+  if (warmedEngines || typeof window === 'undefined') return;
+  warmedEngines = true;
+  const run = () => {
+    void import('hls.js').catch(() => undefined);
+    window.setTimeout(() => {
+      void import('mpegts.js').catch(() => undefined);
+    }, 900);
+  };
+  const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  if (typeof ric === 'function') ric(run, { timeout: 1500 });
+  else window.setTimeout(run, 350);
+}
 
 export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   state: 'idle', currentTime: 0, duration: 0, seekable: false, live: false,
@@ -233,14 +288,18 @@ export class PlaybackEngine {
   }
 
   private markCandidateOk(): void {
+    const cand = this.candidates[this.candIdx];
     if (!this.candOk) {
       this.candOk = true;
       this.winningCandIdx = this.candIdx;
       this.healthySince = Date.now();
       this.lastMediaAdvanceAt = Date.now();
+      if (cand && this.primaryUrl) {
+        const key = hostKeyOf(this.primaryUrl);
+        if (key) hostRouteMemory.set(key, { via: cand.via, format: cand.format, at: Date.now() });
+      }
     }
     this.clearWatchdog();
-    const cand = this.candidates[this.candIdx];
     if (cand?.via === 'relay' && !this.snap.engine.includes('Relay')) {
       this.set({ engine: `${this.snap.engine} · Relay` });
     }
@@ -464,12 +523,15 @@ export class PlaybackEngine {
     }
 
     const httpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
-    this.candidates = buildCandidates(url, format, {
+    const rawCandidates = buildCandidates(url, format, {
       forced: effectiveOpts.forcedFormat,
       relay: true,
       httpsPage,
       referrer: effectiveOpts.referrer,
     });
+    this.candidates = effectiveOpts.forcedFormat && effectiveOpts.forcedFormat !== 'auto'
+      ? rawCandidates
+      : prioritizeCandidatesForHost(url, rawCandidates);
     this.candIdx = 0;
     await this.startCandidate(seq);
   }
@@ -507,7 +569,7 @@ export class PlaybackEngine {
     });
 
     this.clearWatchdog();
-    const timeoutMs = cand.via === 'relay' ? 14000 : 11000;
+    const timeoutMs = cand.via === 'relay' ? 10000 : 7000;
     this.watchdog = window.setTimeout(() => {
       if (this.isCurrent(seq) && !this.candOk) {
         this.candidateFailed(mapPlaybackError({ message: 'timeout', url: cand.url }), seq);
@@ -568,17 +630,26 @@ export class PlaybackEngine {
     }
 
     const prefLang = this.lastOpts.preferredAudioLang;
+    const hasFallback = this.candIdx < this.candidates.length - 1;
     const hls = new HlsCtor({
       enableWorker: true,
       lowLatencyMode: true,
-      backBufferLength: 30,
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
+      startFragPrefetch: true,
+      backBufferLength: 24,
+      maxBufferLength: 20,
+      maxMaxBufferLength: 45,
+      maxBufferHole: 0.5,
+      highBufferWatchdogPeriod: 1,
+      liveSyncDurationCount: 2,
+      liveMaxLatencyDurationCount: 6,
       startLevel: -1,
       capLevelToPlayerSize: false,
-      fragLoadingMaxRetry: 4,
-      manifestLoadingMaxRetry: 2,
-      levelLoadingMaxRetry: 4,
+      manifestLoadingTimeOut: 6000,
+      manifestLoadingMaxRetry: hasFallback ? 0 : 2,
+      levelLoadingTimeOut: 6500,
+      levelLoadingMaxRetry: hasFallback ? 1 : 3,
+      fragLoadingTimeOut: 9500,
+      fragLoadingMaxRetry: 3,
       ...(prefLang ? { audioPreference: { lang: prefLang } } : {}),
     });
     this.hls = hls;
@@ -749,6 +820,15 @@ export class PlaybackEngine {
         audioRecovery++;
         if (data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
         else hls.startLoad();
+        return;
+      }
+      const isManifestFail =
+        data.details === HlsCtor.ErrorDetails.MANIFEST_LOAD_ERROR ||
+        data.details === HlsCtor.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
+        data.details === HlsCtor.ErrorDetails.MANIFEST_PARSING_ERROR;
+      // Fast-fail to next candidate (/api/relay or .ts) immediately when initial manifest is CORS-blocked/unreachable
+      if (!this.candOk && isManifestFail && this.candIdx < this.candidates.length - 1) {
+        this.candidateFailed(mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }), seq);
         return;
       }
       if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && networkRecoveries < 2) {

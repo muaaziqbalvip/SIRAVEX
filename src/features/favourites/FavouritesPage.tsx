@@ -61,18 +61,20 @@ export function FavouritesPage() {
             onDragStart={() => setDragIdx(idx)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => { if (dragIdx !== null) void moveFavourite(dragIdx, idx); setDragIdx(null); }}
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-3"
+            className="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-card p-2.5 sm:gap-3 sm:p-3"
           >
-            <GripVertical className="shrink-0 cursor-grab text-muted" size={18} aria-hidden />
-            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-panel"><SafeImage src={it.poster || it.logo} title={it.title} className="h-full w-full" /></div>
+            <GripVertical className="hidden shrink-0 cursor-grab text-muted sm:block" size={18} aria-hidden />
+            <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-panel sm:h-12 sm:w-12"><SafeImage src={it.poster || it.logo} title={it.title} className="h-full w-full" /></div>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{it.title}</p>
+              <p className="truncate text-sm font-semibold sm:text-base">{it.title}</p>
               <p className="truncate text-xs text-muted">{it.kind.toUpperCase()} · {it.group}</p>
             </div>
-            <button type="button" disabled={idx === 0} onClick={() => void moveFavourite(idx, idx - 1)} aria-label={`Move ${it.title} up`} className="grid h-11 w-11 place-items-center rounded-lg border border-border disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ArrowUp size={17} /></button>
-            <button type="button" disabled={idx === favItems.length - 1} onClick={() => void moveFavourite(idx, idx + 1)} aria-label={`Move ${it.title} down`} className="grid h-11 w-11 place-items-center rounded-lg border border-border disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ArrowDown size={17} /></button>
-            <Link to={`/player/${encodeURIComponent(it.id)}`} aria-label={`Play ${it.title}`} className="grid h-11 w-11 place-items-center rounded-lg bg-sky-500 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Play size={17} /></Link>
-            <button type="button" onClick={() => void toggleFavourite(it.id)} aria-label={`Remove ${it.title} from favourites`} className="grid h-11 w-11 place-items-center rounded-lg border border-border text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Trash2 size={17} /></button>
+            <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+              <button type="button" disabled={idx === 0} onClick={() => void moveFavourite(idx, idx - 1)} aria-label={`Move ${it.title} up`} className="grid h-9 w-9 place-items-center rounded-lg border border-border disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx sm:h-10 sm:w-10"><ArrowUp size={16} /></button>
+              <button type="button" disabled={idx === favItems.length - 1} onClick={() => void moveFavourite(idx, idx + 1)} aria-label={`Move ${it.title} down`} className="grid h-9 w-9 place-items-center rounded-lg border border-border disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx sm:h-10 sm:w-10"><ArrowDown size={16} /></button>
+              <Link to={`/player/${encodeURIComponent(it.id)}`} aria-label={`Play ${it.title}`} className="grid h-9 w-9 place-items-center rounded-lg bg-sky-500 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx sm:h-10 sm:w-10"><Play size={16} /></Link>
+              <button type="button" onClick={() => void toggleFavourite(it.id)} aria-label={`Remove ${it.title} from favourites`} className="grid h-9 w-9 place-items-center rounded-lg border border-border text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx sm:h-10 sm:w-10"><Trash2 size={16} /></button>
+            </div>
           </li>
         ))}
       </ul>

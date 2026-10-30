@@ -106,7 +106,7 @@ export function LiveTvPage() {
       <label className="sr-only" htmlFor="live-q">Search channels</label>
       <input id="live-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search channels…" className="mb-3 min-h-[46px] w-full rounded-xl border border-border bg-panel px-3.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30" />
 
-      <div className="chips-row -mx-3 mb-3 flex flex-nowrap gap-1.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0" role="group" aria-label="Categories">
+      <div className="chips-row mb-3 flex flex-nowrap gap-1.5 overflow-x-auto pb-1" role="group" aria-label="Categories">
         {groups.map((g) => (
           <button
             key={g}
@@ -130,7 +130,7 @@ export function LiveTvPage() {
       {filtered.length === 0 ? (
         <EmptyState title="No channels match" body="Try a different search or category, or import a playlist that contains live channels." />
       ) : grid ? (
-        <div className="flex w-full min-w-0 flex-wrap gap-2.5">{shown.map((i) => <ChannelCard key={i.id} item={i} nowTitle={getEpgCur(i)} />)}</div>
+        <div className="grid w-full min-w-0 grid-cols-2 gap-2.5 min-[480px]:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">{shown.map((i) => <ChannelCard key={i.id} item={i} nowTitle={getEpgCur(i)} gridMode />)}</div>
       ) : (
         <div className="grid w-full min-w-0 gap-2">{shown.map((i) => <ChannelRow key={i.id} item={i} nowTitle={getEpgCur(i)} nextTitle={getEpgNxt(i)} />)}</div>
       )}

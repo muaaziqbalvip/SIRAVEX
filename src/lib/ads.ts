@@ -88,8 +88,8 @@ interface CacheEntry {
   promise: Promise<MzServeResult>;
 }
 const serveCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 25_000;
-const FETCH_TIMEOUT_MS = 4_500;
+const CACHE_TTL_MS = 45_000;
+const FETCH_TIMEOUT_MS = 2_000;
 
 export function getAdsState(): AdsLoadState {
   return state;

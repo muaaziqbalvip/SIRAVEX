@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity, AudioLines, Camera, Check, ChevronLeft, ChevronRight, Circle,
-  ExternalLink, Gauge, Heart, ListVideo, Maximize, Minimize, Moon, Pause,
+  ExternalLink, Frame, Gauge, Heart, ListVideo, Maximize, Minimize, Moon, Pause,
   PictureInPicture2, Play, Radio, RotateCcw, Search, Settings2, Share2,
   SlidersHorizontal, Square, Subtitles, Undo2, Upload, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
@@ -34,11 +34,11 @@ const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = {
   rec: 'Stream Recorder',
 };
 
-const ASPECT_OPTIONS: { id: AspectMode; label: string; sub: string }[] = [
-  { id: 'contain', label: 'Fit (Original)', sub: 'Poora frame nazar ayega, kuch nahi katega' },
-  { id: 'cover', label: 'Zoom Fill', sub: 'Screen bhar dega (kinare halkay crop)' },
-  { id: 'fill', label: 'Stretch 16:9', sub: 'Poori chaurai aur unchai stretch' },
-  { id: '4:3', label: '4:3 Classic TV', sub: 'Classic broadcast framing' },
+const ASPECT_OPTIONS: { id: AspectMode; label: string; short: string; sub: string }[] = [
+  { id: 'contain', label: 'Fit (Original)', short: 'Fit', sub: 'Poora frame nazar ayega, kuch nahi katega' },
+  { id: 'cover', label: 'Zoom Fill', short: 'Zoom', sub: 'Screen bhar dega (kinare halkay crop)' },
+  { id: 'fill', label: 'Stretch 16:9', short: 'Stretch', sub: 'Poori chaurai aur unchai stretch' },
+  { id: '4:3', label: '4:3 Classic TV', short: '4:3', sub: 'Classic broadcast framing' },
 ];
 
 interface SavePickerWindow {
@@ -62,6 +62,9 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const [snap, setSnap] = useState<PlayerSnapshot>(INITIAL_SNAPSHOT);
   const [theatre, setTheatre] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+  const inFullView = isFullscreen || pseudoFullscreen;
+
   const [panel, setPanel] = useState<Panel>('none');
   const panelRef = useRef<Panel>('none');
   useEffect(() => { panelRef.current = panel; }, [panel]);
@@ -132,7 +135,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     if (isPlaying) {
       hideTimer.current = window.setTimeout(() => {
         if (panelRef.current === 'none') setControlsVisible(false);
-      }, 3500);
+      }, 3800);
     }
   }, []);
 
@@ -144,25 +147,50 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     }
   }, [panel]);
 
+  // Lock body scroll whenever pseudoFullscreen or mobile bottom-sheet is open
+  useEffect(() => {
+    if (pseudoFullscreen) {
+      document.body.classList.add('svx-lock-scroll');
+      return () => document.body.classList.remove('svx-lock-scroll');
+    }
+    return undefined;
+  }, [pseudoFullscreen]);
+
+  /**
+   * Universal Full View:
+   * 1) Uses native element Fullscreen API (`wrap.requestFullscreen`) + landscape lock where supported.
+   * 2) On iOS Safari / WebViews where element Fullscreen is unavailable, activates Immersive
+   *    Full-Viewport Mode (`fixed inset-0 z-[90] h-[100dvh] w-[100dvw]`) so 100% of SIRAVEX Pro
+   *    buttons (Quality, Audio, Channels, Picture EQ, Aspect, Recorder) stay visible & usable!
+   */
   const toggleFullscreen = useCallback(async () => {
     const wrap = wrapRef.current;
-    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
-      } else if (wrap?.requestFullscreen) {
+        setPseudoFullscreen(false);
+        return;
+      }
+      if (pseudoFullscreen) {
+        setPseudoFullscreen(false);
+        const orient = (screen as unknown as { orientation?: { unlock?: () => void } }).orientation;
+        try { orient?.unlock?.(); } catch { /* ignore */ }
+        return;
+      }
+      if (wrap && typeof wrap.requestFullscreen === 'function') {
         await wrap.requestFullscreen();
         const orient = (screen as unknown as { orientation?: { lock?: (m: string) => Promise<void> } }).orientation;
-        if (orient?.lock && window.innerWidth < 960) {
+        if (orient?.lock && window.innerWidth < 1024) {
           orient.lock('landscape').catch(() => undefined);
         }
-      } else if (video?.webkitEnterFullscreen) {
-        video.webkitEnterFullscreen();
+        return;
       }
+      // Fallback for iPhone Safari / mobile WebViews: keep custom SIRAVEX UI in 100dvh Full View!
+      setPseudoFullscreen(true);
     } catch {
-      try { video?.webkitEnterFullscreen?.(); } catch { /* ignore */ }
+      setPseudoFullscreen((v) => !v);
     }
-  }, []);
+  }, [pseudoFullscreen]);
 
   useEffect(() => {
     const onFs = () => {
@@ -315,13 +343,12 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       const eng = engineRef.current;
       if (!eng) return;
 
-      // Numeric TV remote channel zapping (0-9) on Live TV
       if (item.kind === 'live' && liveSiblings.length > 1 && /^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         const nextDigits = (zapDigitsRef.current + e.key).slice(0, 4);
         setZapDigits(nextDigits);
         if (zapTimer.current) window.clearTimeout(zapTimer.current);
-        zapTimer.current = window.setTimeout(() => commitZap(nextDigits), 1200);
+        zapTimer.current = window.setTimeout(() => commitZap(nextDigits), 1100);
         return;
       }
       if (e.key === 'Enter' && zapDigitsRef.current) {
@@ -344,19 +371,22 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       else if (e.key === 'ArrowLeft') eng.seekBy(-10);
       else if (e.key === 'ArrowUp') { e.preventDefault(); eng.setVolume(Math.min(1, snap.volume + 0.1)); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); eng.setVolume(Math.max(0, snap.volume - 0.1)); }
-      else if (e.key === 'Escape') { setZapDigits(''); setPanel('none'); }
+      else if (e.key === 'Escape') {
+        setZapDigits('');
+        if (panel !== 'none') setPanel('none');
+        else if (pseudoFullscreen) setPseudoFullscreen(false);
+      }
       poke(snap.state === 'playing');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [snap.state, snap.volume, poke, toggleFullscreen, cycleAspect, liveSiblings.length, nextCh, prevCh, recallCh, item.kind, commitZap, navigate]);
+  }, [snap.state, snap.volume, poke, toggleFullscreen, cycleAspect, liveSiblings.length, nextCh, prevCh, recallCh, item.kind, commitZap, navigate, panel, pseudoFullscreen]);
 
   const flashSeek = (side: 'left' | 'right') => {
     setSeekFlash(side);
     window.setTimeout(() => setSeekFlash(null), 550);
   };
 
-  /** Touch-smart video tap: mobile tap reveals/hides controls without accidentally pausing; double-tap seeks or fullscreens! */
   const onVideoSurfaceClick = (e: React.MouseEvent<HTMLVideoElement>) => {
     if (panel !== 'none') { setPanel('none'); return; }
     const isCoarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -417,7 +447,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       });
       setRecState('recording');
       setPanel('none');
-      setNotice(`Recording start — ${mime.includes('mp4') ? 'MP4' : 'WebM'} · ${q.label}. Sirf wahi content record karein jis ke rights aap ke paas hon.`);
+      setNotice(`Recording start — ${mime.includes('mp4') ? 'MP4' : 'WebM'} · ${q.label}.`);
     } catch (e) {
       if (sink?.abort) { try { await sink.abort(); } catch { /* ignore */ } }
       setRecState('idle');
@@ -448,6 +478,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const playing = snap.state === 'playing';
   const showUi = controlsVisible || !playing || panel !== 'none';
   const filterCss = buildVideoFilterCss(settings);
+  const currentAspectMeta = ASPECT_OPTIONS.find((a) => a.id === aspect) ?? ASPECT_OPTIONS[0];
   const videoStyle: React.CSSProperties = {
     fontSize: settings.subtitleSize === 'small' ? '14px' : settings.subtitleSize === 'large' ? '22px' : '18px',
     color: settings.subtitleColor,
@@ -500,6 +531,15 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const openInDirect = () => {
     try { sessionStorage.setItem('siravex-direct-prefill', item.url); } catch { /* ignore */ }
     navigate('/direct');
+  };
+
+  const requestPip = async () => {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await videoRef.current?.requestPictureInPicture();
+    } catch {
+      setNotice('Picture-in-Picture is browser/stream par available nahi.');
+    }
   };
 
   const optionRow = (o: { id: string; label: string; sub?: string }, active: string, onPick: (id: string) => void) => (
@@ -597,9 +637,6 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           >
             <Upload size={17} aria-hidden />Apni subtitle file load karein (.srt / .vtt)
           </button>
-          <p className="px-1 pt-2 text-[11px] leading-4 text-white/50">
-            Subtitle ka size/colour aur preferred language Settings se badlein.
-          </p>
         </div>
       );
     }
@@ -670,7 +707,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
             <input
               value={chQuery}
               onChange={(e) => setChQuery(e.target.value)}
-              placeholder={`Search ${liveSiblings.length} channels (or type 0-9 on player)…`}
+              placeholder={`Search ${liveSiblings.length} channels…`}
               aria-label="Search channels in player"
               className="min-h-[42px] w-full rounded-xl border border-white/15 bg-white/5 pl-9 pr-3 text-sm text-white placeholder:text-white/45 focus:border-sky-400 focus:outline-none"
             />
@@ -732,16 +769,16 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               </div>
               {!recToDisk && recBytes > MEMORY_WARN_BYTES && (
                 <p className="px-3 pt-2 text-xs leading-5 text-amber-300">
-                  Recording bohat bari ho gayi hai ({formatBytes(recBytes)}) — browser memory ki limit qareeb hai. Stop &amp; Save kar lein.
+                  Recording bohat bari ho gayi hai ({formatBytes(recBytes)}) — Stop &amp; Save kar lein.
                 </p>
               )}
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {recState === 'recording' ? (
-                  <button type="button" onClick={() => { recorderRef.current?.pause(); setRecState('paused'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Pause size={16} aria-hidden />Pause</button>
+                  <button type="button" onClick={() => { recorderRef.current?.pause(); setRecState('paused'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white"><Pause size={16} aria-hidden />Pause</button>
                 ) : (
-                  <button type="button" onClick={() => { recorderRef.current?.resume(); setRecState('recording'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Play size={16} aria-hidden />Resume</button>
+                  <button type="button" onClick={() => { recorderRef.current?.resume(); setRecState('recording'); }} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-white/25 text-sm font-bold text-white"><Play size={16} aria-hidden />Resume</button>
                 )}
-                <button type="button" onClick={() => void stopRecording()} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-extrabold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Square size={14} className="fill-white" aria-hidden />Stop &amp; Save</button>
+                <button type="button" onClick={() => void stopRecording()} className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-red-600 text-sm font-extrabold text-white"><Square size={14} className="fill-white" aria-hidden />Stop &amp; Save</button>
               </div>
             </>
           )}
@@ -751,7 +788,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
 
     return (
       <div>
-        <p className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-white/50">Aspect Ratio & Framing (key: A)</p>
+        <p className="px-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-white/50">Aspect Ratio &amp; Framing (key: A)</p>
         <div className="grid gap-1" role="listbox" aria-label="Aspect ratio">
           {ASPECT_OPTIONS.map((a) => optionRow(a, aspect, (id) => setAspect(id as AspectMode)))}
         </div>
@@ -775,10 +812,55 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           type="button"
           onClick={() => setTheatre(!theatre)}
           aria-pressed={theatre}
-          className={`mt-3 flex min-h-[48px] w-full items-center justify-between rounded-xl px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${theatre ? 'bg-sky-500 text-white' : 'text-white/90 hover:bg-white/10'}`}
+          className={`mt-3 flex min-h-[48px] w-full items-center justify-between rounded-xl px-3 text-sm font-semibold ${theatre ? 'bg-sky-500 text-white' : 'text-white/90 hover:bg-white/10'}`}
         >
           Theatre mode {theatre && <Check size={17} aria-hidden />}
         </button>
+      </div>
+    );
+  };
+
+  /** Sheet drawer rendered inside Full View OR as a spacious fixed mobile bottom sheet when inline */
+  const renderSheetModal = (insideFull: boolean) => {
+    if (panel === 'none') return null;
+    if (insideFull && !inFullView) return null;
+    if (!insideFull && inFullView) return null;
+
+    return (
+      <div
+        className={
+          insideFull
+            ? 'absolute inset-0 z-30 flex flex-col justify-end bg-black/65 backdrop-blur-[2px]'
+            : 'fixed inset-0 z-[95] flex flex-col justify-end bg-black/70 backdrop-blur-[2px]'
+        }
+        role="dialog"
+        aria-modal="true"
+        aria-label={PANEL_TITLES[panel]}
+        onClick={() => setPanel('none')}
+      >
+        <div
+          className="mx-auto flex max-h-[82dvh] w-full max-w-xl flex-col rounded-t-3xl border-t border-white/15 bg-[#070d1df7] shadow-card"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-4 py-3">
+            <h3 className="min-w-0 flex-1 truncate text-sm font-extrabold text-white">
+              {PANEL_TITLES[panel]}
+              {panel === 'quality' && <span className="ml-2 font-mono text-[11px] font-semibold text-cyanx">{snap.currentQualityLabel}{snap.bitrateKbps ? ` · ${snap.bitrateKbps}k` : ''}</span>}
+              {panel === 'audio' && <span className="ml-2 font-mono text-[11px] font-semibold text-cyanx">{snap.audioLabel}</span>}
+            </h3>
+            <button
+              type="button"
+              onClick={() => setPanel('none')}
+              aria-label="Close panel"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="nice-scroll min-h-0 flex-1 overflow-y-auto p-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {panelBody()}
+          </div>
+        </div>
       </div>
     );
   };
@@ -787,12 +869,16 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     <section aria-label={`Player: ${item.title}`} className={theatre ? 'mx-auto w-full max-w-none' : 'w-full min-w-0'}>
       <div
         ref={wrapRef}
-        className={`group/player relative w-full min-w-0 select-none overflow-hidden border border-border bg-black shadow-card ${isFullscreen ? 'flex h-screen items-center justify-center rounded-none border-0' : 'rounded-2xl'}`}
+        className={`group/player relative w-full min-w-0 select-none overflow-hidden bg-black shadow-card ${
+          inFullView
+            ? 'fixed inset-0 z-[90] flex h-[100dvh] w-[100dvw] flex-col justify-center rounded-none border-0'
+            : 'rounded-2xl border border-border'
+        }`}
         onMouseMove={() => poke(playing)}
       >
         <video
           ref={videoRef}
-          className={`${isFullscreen ? 'max-h-screen w-full' : 'aspect-video w-full'} bg-black`}
+          className={`${inFullView ? 'h-full max-h-[100dvh] w-full' : 'aspect-video w-full'} bg-black`}
           playsInline
           aria-label={item.title}
           style={videoStyle}
@@ -821,32 +907,80 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           </div>
         )}
 
-        {/* Top bar */}
-        <div className={`absolute inset-x-0 top-0 z-10 flex items-center gap-1.5 bg-gradient-to-b from-black/85 to-transparent p-2.5 pb-9 transition-opacity duration-300 sm:gap-2 sm:p-3 ${showUi ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-          <button type="button" onClick={() => (isFullscreen ? void toggleFullscreen() : navigate(-1))} aria-label={isFullscreen ? 'Exit fullscreen' : 'Go back'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronLeft size={21} /></button>
+        {/* Top bar — sleek on mobile inline, full info in Full View */}
+        <div
+          className={`absolute inset-x-0 top-0 z-10 flex items-center gap-1.5 bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-opacity duration-200 ${
+            inFullView ? 'svx-safe-top svx-safe-x pb-8' : 'px-2.5 pb-6 pt-2 sm:px-3.5 sm:pt-3'
+          } ${showUi ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        >
+          <button
+            type="button"
+            onClick={() => (inFullView ? void toggleFullscreen() : navigate(-1))}
+            aria-label={inFullView ? 'Exit full view' : 'Go back'}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/55 text-white hover:bg-black/80 sm:h-10 sm:w-10"
+          >
+            <ChevronLeft size={20} />
+          </button>
+
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-white sm:text-base" title={item.title}>
-              {sibIdx >= 0 ? <span className="mr-1.5 font-mono text-xs text-cyanx">#{sibIdx + 1}</span> : null}
+            <p className="truncate text-xs font-bold text-white sm:text-base" title={item.title}>
+              {sibIdx >= 0 ? <span className="mr-1 font-mono text-[11px] text-cyanx">#{sibIdx + 1}</span> : null}
               {cleanTitle(item.title)}
             </p>
-            <p className="truncate text-xs text-white/70">{nowNext.current ? `Now: ${cleanTitle(nowNext.current.title)}` : cleanTitle(item.group)}</p>
+            <p className="hidden truncate text-[11px] text-white/75 min-[420px]:block sm:text-xs">
+              {nowNext.current ? `Now: ${cleanTitle(nowNext.current.title)}` : cleanTitle(item.group)}
+            </p>
           </div>
-          {recallCh && (
+
+          {recallCh && inFullView && (
             <button
               type="button"
               onClick={() => navigate(`/player/${encodeURIComponent(recallCh.id)}`)}
-              title={`Last Channel Recall (L): ${cleanTitle(recallCh.title)}`}
-              aria-label={`Recall previous channel: ${cleanTitle(recallCh.title)}`}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-3 text-xs font-bold text-cyanx hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+              title={`Last Channel Recall: ${cleanTitle(recallCh.title)}`}
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-black/60 px-2.5 text-xs font-bold text-cyanx hover:bg-black/80"
             >
-              <Undo2 size={15} aria-hidden />
-              <span className="hidden sm:inline">Recall</span>
+              <Undo2 size={14} aria-hidden />
+              <span>Recall</span>
             </button>
           )}
-          <button type="button" onClick={() => void eng()?.reconnectNow()} aria-label="Reconnect stream" title="Reconnect / Reload Stream" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><RotateCcw size={17} /></button>
-          <button type="button" onClick={() => void toggleFavourite(item.id)} aria-label={fav ? 'Remove from favourites' : 'Add to favourites'} aria-pressed={fav} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Heart size={18} className={fav ? 'fill-red-400 text-red-400' : ''} /></button>
-          <button type="button" onClick={() => setStatsOn(!statsOn)} aria-label="Toggle stream statistics" aria-pressed={statsOn} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${statsOn ? 'bg-sky-500' : 'bg-black/50 hover:bg-black/70'}`}><Activity size={18} /></button>
-          {snap.live && <span className="inline-flex shrink-0 items-center gap-1.5 rounded bg-red-600 px-2 py-1 text-[11px] font-extrabold text-white"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />LIVE</span>}
+
+          <button
+            type="button"
+            onClick={() => void eng()?.reconnectNow()}
+            aria-label="Reconnect stream"
+            title="Reconnect / Reload Stream"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/55 text-white hover:bg-black/80 sm:h-10 sm:w-10"
+          >
+            <RotateCcw size={16} />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void toggleFavourite(item.id)}
+            aria-label={fav ? 'Remove from favourites' : 'Add to favourites'}
+            aria-pressed={fav}
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-full bg-black/55 text-white hover:bg-black/80 min-[390px]:grid sm:h-10 sm:w-10"
+          >
+            <Heart size={17} className={fav ? 'fill-red-400 text-red-400' : ''} />
+          </button>
+
+          {inFullView && (
+            <button
+              type="button"
+              onClick={() => setStatsOn(!statsOn)}
+              aria-label="Toggle stream statistics"
+              aria-pressed={statsOn}
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white ${statsOn ? 'bg-sky-500' : 'bg-black/55 hover:bg-black/80'}`}
+            >
+              <Activity size={16} />
+            </button>
+          )}
+
+          {snap.live && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded bg-red-600 px-2 py-0.5 text-[10px] font-extrabold text-white sm:text-[11px]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />LIVE
+            </span>
+          )}
         </div>
 
         {/* One-tap Unmute pill when browser forced muted autoplay */}
@@ -854,30 +988,31 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           <button
             type="button"
             onClick={() => eng()?.unmuteAutoplay(settings.defaultVolume)}
-            className="absolute left-3 top-16 z-20 inline-flex min-h-[42px] items-center gap-2 rounded-full bg-sky-500 px-4 py-2 text-xs font-extrabold text-white shadow-glow transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+            className="absolute left-3 top-14 z-20 inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-sky-500 px-3.5 py-1.5 text-xs font-extrabold text-white shadow-glow transition hover:scale-105"
           >
-            <VolumeX size={16} aria-hidden />Tap for Sound
+            <VolumeX size={15} aria-hidden />Tap for Sound
           </button>
         )}
 
         {/* Live Auto-Reconnect Pill */}
         {snap.reconnecting && (
-          <div className="absolute right-3 top-16 z-20 inline-flex items-center gap-2 rounded-full border border-sky-400/50 bg-black/85 px-3 py-1.5 text-xs font-semibold text-sky-200 backdrop-blur" role="status">
-            <Wifi size={14} className="animate-pulse text-sky-400" aria-hidden />
-            <span>Auto-reconnecting ({snap.reconnectAttempt}/{snap.maxReconnects})…</span>
-            <button type="button" onClick={() => void eng()?.reconnectNow()} className="rounded-full bg-sky-500 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-sky-400">Now</button>
+          <div className="absolute right-3 top-14 z-20 inline-flex items-center gap-2 rounded-full border border-sky-400/50 bg-black/85 px-3 py-1 text-xs font-semibold text-sky-200 backdrop-blur" role="status">
+            <Wifi size={13} className="animate-pulse text-sky-400" aria-hidden />
+            <span>Reconnecting ({snap.reconnectAttempt}/{snap.maxReconnects})…</span>
+            <button type="button" onClick={() => void eng()?.reconnectNow()} className="rounded-full bg-sky-500 px-2 py-0.5 text-[11px] font-bold text-white">Now</button>
           </div>
         )}
 
         {recState !== 'idle' && (
-          <button type="button" onClick={() => void stopRecording()} aria-label="Stop recording and save" className="absolute left-2.5 top-28 z-10 inline-flex items-center gap-2 rounded-full border border-red-400/50 bg-black/80 px-3 py-1.5 font-mono text-[11px] font-bold text-red-200 backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
-            <span className={`h-2 w-2 rounded-full bg-red-500 ${recState === 'recording' ? 'animate-pulse' : ''}`} />{recState === 'paused' ? 'REC PAUSED' : 'REC'} {formatRecClock(recSecs)} · {formatBytes(recBytes)}
+          <button type="button" onClick={() => void stopRecording()} aria-label="Stop recording and save" className="absolute left-3 top-24 z-20 inline-flex items-center gap-1.5 rounded-full border border-red-400/50 bg-black/85 px-2.5 py-1 font-mono text-[11px] font-bold text-red-200 backdrop-blur">
+            <span className={`h-2 w-2 rounded-full bg-red-500 ${recState === 'recording' ? 'animate-pulse' : ''}`} />
+            {recState === 'paused' ? 'PAUSED' : 'REC'} {formatRecClock(recSecs)}
           </button>
         )}
 
         {/* Stats overlay */}
         {statsOn && (
-          <div className="pointer-events-none absolute left-2.5 top-16 z-10 w-[235px] rounded-xl border border-white/15 bg-black/82 p-3 font-mono text-[11px] leading-5 text-emerald-200 backdrop-blur" aria-label="Stream statistics">
+          <div className="pointer-events-none absolute left-3 top-14 z-20 w-[225px] rounded-xl border border-white/15 bg-black/85 p-2.5 font-mono text-[10px] leading-4 text-emerald-200 backdrop-blur sm:text-[11px] sm:leading-5" aria-label="Stream statistics">
             {[
               ['Engine', snap.engine],
               ['Format', snap.format.toUpperCase()],
@@ -885,10 +1020,8 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               ['Bitrate', snap.bitrateKbps ? `${snap.bitrateKbps} kbps` : '—'],
               ['Quality', snap.currentQualityLabel],
               ['Audio', snap.audioLabel],
-              ['Picture', settings.videoPreset],
-              ['Buffer ahead', `${bufferAhead}s`],
-              ['Dropped', `${snap.droppedFrames}/${snap.totalFrames} (${dropPct}%)`],
-              ['State', snap.reconnecting ? `reconnect ${snap.reconnectAttempt}/${snap.maxReconnects}` : snap.state],
+              ['Buffer', `${bufferAhead}s`],
+              ['Dropped', `${snap.droppedFrames} (${dropPct}%)`],
             ].map(([k, v]) => (
               <p key={k} className="flex justify-between gap-2"><span className="text-white/50">{k}</span><span className="truncate">{v}</span></p>
             ))}
@@ -897,20 +1030,24 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
 
         {/* Go Live button for DVR live */}
         {snap.live && snap.seekable && snap.behindLiveSec > 15 && snap.state !== 'error' && (
-          <button type="button" onClick={() => eng()?.goLive()} className="absolute bottom-24 right-3 z-10 inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-red-600 px-3 text-xs font-extrabold text-white shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
-            <Radio size={14} aria-hidden />GO LIVE · −{Math.round(snap.behindLiveSec)}s
+          <button
+            type="button"
+            onClick={() => eng()?.goLive()}
+            className={`absolute right-3 z-20 inline-flex min-h-[34px] items-center gap-1.5 rounded-full bg-red-600 px-3 text-[11px] font-extrabold text-white shadow-glow ${inFullView ? 'bottom-28' : 'bottom-14'}`}
+          >
+            <Radio size={13} aria-hidden />GO LIVE · −{Math.round(snap.behindLiveSec)}s
           </button>
         )}
 
         {(snap.state === 'loading' || snap.state === 'buffering') && (
           <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center" role="status" aria-label={snap.state}>
             <span className="grid place-items-center gap-2">
-              <span className="h-12 w-12 animate-spin rounded-full border-[3px] border-white/25 border-t-cyan-300" />
-              <span className="rounded-full bg-black/65 px-3 py-1 text-xs font-medium text-white">
+              <span className="h-10 w-10 animate-spin rounded-full border-[3px] border-white/25 border-t-cyan-300 sm:h-12 sm:w-12" />
+              <span className="rounded-full bg-black/70 px-3 py-1 text-[11px] font-medium text-white sm:text-xs">
                 {snap.reconnecting
-                  ? `Reconnecting stream (${snap.reconnectAttempt}/${snap.maxReconnects})…`
+                  ? `Reconnecting (${snap.reconnectAttempt}/${snap.maxReconnects})…`
                   : snap.state === 'loading'
-                    ? `Connecting stream…${snap.attempts > 1 ? ` (source ${snap.attempt}/${snap.attempts})` : ''}`
+                    ? `Starting stream…${snap.attempts > 1 && snap.attempt > 1 ? ` (route ${snap.attempt}/${snap.attempts})` : ''}`
                     : 'Buffering…'}
               </span>
             </span>
@@ -918,34 +1055,46 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
         )}
 
         {!playing && snap.state !== 'loading' && snap.state !== 'buffering' && snap.state !== 'error' && panel === 'none' && (
-          <button type="button" onClick={() => eng()?.play()} aria-label="Play" className="absolute inset-0 z-10 grid w-full place-items-center bg-black/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx">
-            <span className="grid h-[68px] w-[68px] place-items-center rounded-full bg-sky-500 text-white shadow-glow transition hover:scale-105 sm:h-[72px] sm:w-[72px]"><Play size={32} className="ml-1" /></span>
+          <button type="button" onClick={() => eng()?.play()} aria-label="Play" className="absolute inset-0 z-10 grid w-full place-items-center bg-black/25">
+            <span className="grid h-14 w-14 place-items-center rounded-full bg-sky-500 text-white shadow-glow transition hover:scale-105 sm:h-[68px] sm:w-[68px]">
+              <Play size={28} className="ml-1" />
+            </span>
           </button>
         )}
 
         {snap.state === 'error' && snap.error && (
-          <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/92 p-4" role="alert">
-            <div className="w-full max-w-lg text-center">
-              <img src="/icons/logo-256.png" alt="" width={52} height={52} className="mx-auto mb-3 h-[52px] w-[52px] rounded-2xl opacity-90" />
-              <h2 className="text-base font-bold sm:text-lg">Playback failed — {snap.error.category.replace(/-/g, ' ')}</h2>
-              {snap.error.codeLabel && <p className="mt-1.5 inline-block rounded-full border border-white/20 bg-white/5 px-2.5 py-0.5 font-mono text-[11px] text-amber-300">{snap.error.codeLabel}</p>}
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted">{snap.error.message}</p>
-              <p className="mx-auto mt-1.5 max-w-md text-sm leading-6 text-silver">{snap.error.action}</p>
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button onClick={() => eng()?.retry()}><RotateCcw size={16} aria-hidden />Reconnect &amp; Retry</Button>
-                <Button variant="outline" onClick={openInDirect}><ExternalLink size={16} aria-hidden />Play Stream mein kholein</Button>
-                {nextCh && <Button variant="ghost" onClick={() => navigate(`/player/${encodeURIComponent(nextCh.id)}`)}>Next channel</Button>}
+          <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/92 p-3 sm:p-5" role="alert">
+            <div className="w-full max-w-md text-center">
+              <h2 className="text-sm font-bold text-white sm:text-lg">Playback failed — {snap.error.category.replace(/-/g, ' ')}</h2>
+              {snap.error.codeLabel && <p className="mt-1 inline-block rounded-full border border-white/20 bg-white/5 px-2.5 py-0.5 font-mono text-[10px] text-amber-300">{snap.error.codeLabel}</p>}
+              <p className="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-muted sm:text-sm">{snap.error.message}</p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <Button className="min-h-[38px] px-3.5 text-xs" onClick={() => eng()?.retry()}>
+                  <RotateCcw size={14} aria-hidden />Retry
+                </Button>
+                <Button variant="outline" className="min-h-[38px] px-3.5 text-xs" onClick={openInDirect}>
+                  <ExternalLink size={14} aria-hidden />Play Stream
+                </Button>
+                {nextCh && (
+                  <Button variant="ghost" className="min-h-[38px] px-3.5 text-xs" onClick={() => navigate(`/player/${encodeURIComponent(nextCh.id)}`)}>
+                    Next Channel →
+                  </Button>
+                )}
               </div>
-              <p className="mt-3 text-[11px] text-muted">Sirf source ka host Diagnostics mein save hota hai — poora private link kabhi nahi.</p>
             </div>
           </div>
         )}
 
-        {/* Bottom controls */}
-        <div className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pb-1.5 pt-12 transition-opacity duration-300 sm:px-3 ${showUi ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+        {/* Bottom HUD — Clean compact bar when inline; Spacious 2-Row Full Pro Dock in Full View! */}
+        <div
+          className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent transition-opacity duration-200 ${
+            inFullView ? 'svx-safe-bottom svx-safe-x pt-10' : 'px-2 pb-1.5 pt-8 sm:px-3 sm:pb-2'
+          } ${showUi ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        >
+          {/* Seekbar */}
           {snap.seekable && !snap.live ? (
-            <div className="flex items-center gap-2">
-              <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-white/90">{formatTime(snap.currentTime)}</span>
+            <div className="mb-1 flex items-center gap-2">
+              <span className="w-10 shrink-0 text-right font-mono text-[11px] tabular-nums text-white/90">{formatTime(snap.currentTime)}</span>
               <input
                 type="range"
                 min={0}
@@ -956,31 +1105,80 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
                 className="min-w-0 flex-1 accent-sky-400"
                 aria-label="Seek through video"
               />
-              <span className="w-10 shrink-0 text-[11px] tabular-nums text-white/90">{formatTime(snap.duration)}</span>
+              <span className="w-10 shrink-0 font-mono text-[11px] tabular-nums text-white/90">{formatTime(snap.duration)}</span>
             </div>
           ) : snap.live ? (
-            <div className="mb-1 h-1 overflow-hidden rounded bg-white/15" aria-hidden><div className="h-full w-full bg-red-500/80" /></div>
+            <div className="mb-1.5 h-0.5 overflow-hidden rounded bg-white/15" aria-hidden>
+              <div className="h-full w-full bg-red-500/85" />
+            </div>
           ) : null}
 
-          <div className="mt-0.5 flex items-center gap-0.5 sm:gap-1">
+          {/* Row 1: Primary Transport (Zero-overflow on all phone widths!) */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
             {item.kind === 'live' && (
-              <button type="button" disabled={!prevCh} onClick={() => prevCh && navigate(`/player/${encodeURIComponent(prevCh.id)}`)} aria-label={prevCh ? `Previous channel: ${prevCh.title}` : 'No previous channel'} className="grid h-10 w-8 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronLeft size={20} /></button>
+              <button
+                type="button"
+                disabled={!prevCh}
+                onClick={() => prevCh && navigate(`/player/${encodeURIComponent(prevCh.id)}`)}
+                aria-label={prevCh ? `Previous channel: ${prevCh.title}` : 'No previous channel'}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/15 disabled:opacity-35 sm:h-10 sm:w-10"
+              >
+                <ChevronLeft size={20} />
+              </button>
             )}
+
             {snap.seekable && (
-              <button type="button" onClick={() => eng()?.seekBy(-10)} aria-label="Back 10 seconds" className="hidden h-10 shrink-0 items-center rounded-full px-1.5 text-[11px] font-bold text-white hover:bg-white/10 min-[400px]:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">−10s</button>
+              <button
+                type="button"
+                onClick={() => eng()?.seekBy(-10)}
+                aria-label="Back 10 seconds"
+                className="inline-flex h-9 shrink-0 items-center rounded-full px-2 text-[11px] font-bold text-white hover:bg-white/15"
+              >
+                −10s
+              </button>
             )}
-            <button type="button" onClick={() => (playing ? eng()?.pause() : eng()?.play())} aria-label={playing ? 'Pause' : 'Play'} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-sky-500 text-white shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
-              {playing ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
+
+            <button
+              type="button"
+              onClick={() => (playing ? eng()?.pause() : eng()?.play())}
+              aria-label={playing ? 'Pause' : 'Play'}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-sky-500 text-white shadow-glow sm:h-11 sm:w-11"
+            >
+              {playing ? <Pause size={19} /> : <Play size={19} className="ml-0.5" />}
             </button>
+
             {snap.seekable && (
-              <button type="button" onClick={() => eng()?.seekBy(10)} aria-label="Forward 10 seconds" className="hidden h-10 shrink-0 items-center rounded-full px-1.5 text-[11px] font-bold text-white hover:bg-white/10 min-[400px]:inline-flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">+10s</button>
+              <button
+                type="button"
+                onClick={() => eng()?.seekBy(10)}
+                aria-label="Forward 10 seconds"
+                className="inline-flex h-9 shrink-0 items-center rounded-full px-2 text-[11px] font-bold text-white hover:bg-white/15"
+              >
+                +10s
+              </button>
             )}
+
             {item.kind === 'live' && (
-              <button type="button" disabled={!nextCh} onClick={() => nextCh && navigate(`/player/${encodeURIComponent(nextCh.id)}`)} aria-label={nextCh ? `Next channel: ${nextCh.title}` : 'No next channel'} className="grid h-10 w-8 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronRight size={20} /></button>
+              <button
+                type="button"
+                disabled={!nextCh}
+                onClick={() => nextCh && navigate(`/player/${encodeURIComponent(nextCh.id)}`)}
+                aria-label={nextCh ? `Next channel: ${nextCh.title}` : 'No next channel'}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/15 disabled:opacity-35 sm:h-10 sm:w-10"
+              >
+                <ChevronRight size={20} />
+              </button>
             )}
-            <button type="button" onClick={() => eng()?.toggleMute()} aria-label={snap.muted ? 'Unmute' : 'Mute'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
-              {snap.muted || snap.volume === 0 ? <VolumeX size={19} /> : <Volume2 size={19} />}
+
+            <button
+              type="button"
+              onClick={() => eng()?.toggleMute()}
+              aria-label={snap.muted ? 'Unmute' : 'Mute'}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/15 sm:h-10 sm:w-10"
+            >
+              {snap.muted || snap.volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
+
             <input
               type="range"
               min={0}
@@ -988,154 +1186,267 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               step={0.05}
               value={snap.muted ? 0 : snap.volume}
               onChange={(e) => eng()?.setVolume(Number(e.target.value))}
-              className="hidden w-[72px] shrink-0 accent-sky-400 lg:block"
+              className="hidden w-20 shrink-0 accent-sky-400 md:block"
               aria-label="Volume"
             />
+
             <span className="min-w-0 flex-1" />
 
-            {liveSiblings.length > 1 && (
-              <button
-                type="button"
-                onClick={() => togglePanel('channels')}
-                aria-expanded={panel === 'channels'}
-                aria-label="Quick channel list"
-                title="Channel List (C / 0-9)"
-                className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-              >
-                <ListVideo size={18} />
-              </button>
+            {/* Desktop inline shortcuts (hidden on cramped mobile inline because mobile has the dedicated dock right below + Row 2 in Full View!) */}
+            {!inFullView && (
+              <div className="hidden items-center gap-1 md:flex">
+                {liveSiblings.length > 1 && (
+                  <button type="button" onClick={() => togglePanel('channels')} aria-label="Quick channel list" className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/15">
+                    <ListVideo size={18} />
+                  </button>
+                )}
+                <button type="button" onClick={() => togglePanel('quality')} aria-label="Video quality" className="inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-bold text-white hover:bg-white/15">
+                  <Gauge size={15} /><span>{snap.currentQualityLabel}</span>
+                </button>
+                <button type="button" onClick={() => togglePanel('audio')} aria-label="Audio tracks" className="relative grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/15">
+                  <AudioLines size={17} />
+                  {snap.audioTracks.length > 1 && <span className="absolute right-0.5 top-0.5 grid h-4 min-w-[16px] place-items-center rounded-full bg-sky-500 px-1 text-[9px] font-extrabold text-white">{snap.audioTracks.length}</span>}
+                </button>
+                <button type="button" onClick={() => togglePanel('subs')} aria-label="Subtitles" className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/15">
+                  <Subtitles size={17} />
+                </button>
+                <button type="button" onClick={() => togglePanel('picture')} aria-label="Picture equalizer" className={`grid h-9 w-9 place-items-center rounded-full hover:bg-white/15 ${filterCss ? 'text-cyanx' : 'text-white'}`}>
+                  <SlidersHorizontal size={16} />
+                </button>
+                <button type="button" onClick={() => togglePanel('more')} aria-label="More options" className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/15">
+                  <Settings2 size={17} />
+                </button>
+              </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => togglePanel('quality')}
-              aria-expanded={panel === 'quality'}
-              aria-label="Video quality"
-              className="inline-flex h-10 max-w-[122px] shrink-0 items-center gap-1 truncate rounded-full px-2 text-xs font-bold text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-            >
-              <Gauge size={16} className="shrink-0" aria-hidden />
-              <span className="truncate">{snap.currentQualityLabel}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => togglePanel('audio')}
-              aria-expanded={panel === 'audio'}
-              aria-label="Audio tracks"
-              className="relative grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-            >
-              <AudioLines size={18} />
-              {snap.audioTracks.length > 1 && (
-                <span className="pointer-events-none absolute right-0.5 top-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-sky-500 px-1 text-[9px] font-extrabold text-white">
-                  {snap.audioTracks.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => togglePanel('subs')}
-              aria-expanded={panel === 'subs'}
-              aria-label="Subtitles"
-              className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-            >
-              <Subtitles size={18} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => togglePanel('picture')}
-              aria-expanded={panel === 'picture'}
-              aria-label="Video picture equalizer"
-              title="Picture Equalizer (Brightness / Contrast / Vivid)"
-              className={`hidden h-10 w-9 shrink-0 place-items-center rounded-full hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx min-[440px]:grid ${
-                filterCss ? 'text-cyanx' : 'text-white'
-              }`}
-            >
-              <SlidersHorizontal size={17} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => togglePanel('more')}
-              aria-expanded={panel === 'more'}
-              aria-label="Aspect ratio, speed, sleep timer and view options"
-              className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-            >
-              <Settings2 size={18} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => (recState === 'idle' ? togglePanel('rec') : void stopRecording())}
-              aria-label={recState === 'idle' ? 'Stream recorder — record current video' : `Stop recording (${formatRecClock(recSecs)})`}
-              className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-            >
-              {recState === 'idle'
-                ? <Circle size={16} className="fill-red-500 text-red-500" aria-hidden />
-                : <Square size={14} className="animate-pulse fill-red-500 text-red-500" aria-hidden />}
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  if (document.pictureInPictureElement) await document.exitPictureInPicture();
-                  else await videoRef.current?.requestPictureInPicture();
-                } catch { setNotice('Picture-in-Picture is browser/stream par available nahi.'); }
-              }}
-              aria-label="Picture in picture"
-              className="hidden h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx min-[480px]:grid"
-            >
-              <PictureInPicture2 size={18} />
-            </button>
-
+            {/* Prominent Full View / Exit Full View Button — ALWAYS visible & clear! */}
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
-              aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-              className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+              aria-label={inFullView ? 'Exit full view' : 'Full view'}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-white/15 px-3 text-xs font-extrabold text-white backdrop-blur hover:bg-sky-500 sm:h-10"
             >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              {inFullView ? <Minimize size={16} /> : <Maximize size={16} />}
+              <span>{inFullView ? 'Exit Full' : 'Full View'}</span>
             </button>
           </div>
+
+          {/* Row 2 in Full View: ALL Pro Buttons clearly labeled & horizontally scrollable — ZERO hidden or crushed buttons on ANY phone! */}
+          {inFullView && (
+            <div className="chips-row mt-2 flex items-center gap-1.5 overflow-x-auto border-t border-white/10 pt-2">
+              {liveSiblings.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => togglePanel('channels')}
+                  className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'channels' ? 'bg-sky-500 text-white' : 'bg-white/12 text-white hover:bg-white/20'}`}
+                >
+                  <ListVideo size={15} aria-hidden />Channels ({liveSiblings.length})
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => togglePanel('quality')}
+                className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'quality' ? 'bg-sky-500 text-white' : 'bg-white/12 text-white hover:bg-white/20'}`}
+              >
+                <Gauge size={15} aria-hidden />{snap.currentQualityLabel}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => togglePanel('audio')}
+                className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'audio' ? 'bg-sky-500 text-white' : 'bg-white/12 text-white hover:bg-white/20'}`}
+              >
+                <AudioLines size={15} aria-hidden />
+                Audio{snap.audioTracks.length > 1 ? ` (${snap.audioTracks.length})` : ''}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => togglePanel('subs')}
+                className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'subs' ? 'bg-sky-500 text-white' : 'bg-white/12 text-white hover:bg-white/20'}`}
+              >
+                <Subtitles size={15} aria-hidden />Subtitles
+              </button>
+
+              <button
+                type="button"
+                onClick={cycleAspect}
+                className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full bg-white/12 px-3 text-xs font-bold text-white hover:bg-white/20"
+              >
+                <Frame size={14} aria-hidden />Aspect: {currentAspectMeta.short}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => togglePanel('picture')}
+                className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'picture' ? 'bg-sky-500 text-white' : filterCss ? 'bg-cyan-500/25 text-cyanx' : 'bg-white/12 text-white hover:bg-white/20'}`}
+              >
+                <SlidersHorizontal size={14} aria-hidden />Picture EQ
+              </button>
+
+              <button
+                type="button"
+                onClick={() => (recState === 'idle' ? togglePanel('rec') : void stopRecording())}
+                className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full bg-white/12 px-3 text-xs font-bold text-white hover:bg-white/20"
+              >
+                {recState === 'idle' ? <Circle size={13} className="fill-red-500 text-red-500" /> : <Square size={13} className="animate-pulse fill-red-500 text-red-500" />}
+                {recState === 'idle' ? 'Record' : 'Stop Rec'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => togglePanel('more')}
+                className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold ${panel === 'more' ? 'bg-sky-500 text-white' : 'bg-white/12 text-white hover:bg-white/20'}`}
+              >
+                <Settings2 size={14} aria-hidden />Speed &amp; Sleep
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void requestPip()}
+                className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full bg-white/12 px-3 text-xs font-bold text-white hover:bg-white/20"
+              >
+                <PictureInPicture2 size={14} aria-hidden />PiP
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Sheet panel — inside player so fullscreen & mobile never clip */}
-        {panel !== 'none' && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex max-h-[76%] flex-col rounded-t-3xl border-t border-white/15 bg-[#070d1df7] shadow-card backdrop-blur" role="dialog" aria-modal="false" aria-label={PANEL_TITLES[panel]}>
-            <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
-              <h3 className="min-w-0 flex-1 truncate text-sm font-extrabold text-white">
-                {PANEL_TITLES[panel]}
-                {panel === 'quality' && <span className="ml-2 font-mono text-[11px] font-semibold text-cyanx">{snap.currentQualityLabel}{snap.bitrateKbps ? ` · ${snap.bitrateKbps}k` : ''}</span>}
-                {panel === 'audio' && <span className="ml-2 font-mono text-[11px] font-semibold text-cyanx">{snap.audioLabel}</span>}
-              </h3>
-              <button type="button" onClick={() => setPanel('none')} aria-label="Close panel" autoFocus className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><X size={18} /></button>
-            </div>
-            <div className="nice-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{panelBody()}</div>
-          </div>
-        )}
+        {/* Sheet Drawer inside Full View */}
+        {renderSheetModal(true)}
       </div>
 
+      {/* Sheet Drawer when NOT in Full View (Full-height mobile bottom sheet — never cramped inside 16:9!) */}
+      {renderSheetModal(false)}
+
+      {/* Always-Visible Mobile & Tablet Pro Control Dock right beneath the video! */}
+      {!inFullView && (
+        <div
+          className="chips-row mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1"
+          aria-label="Player quick controls"
+        >
+          <button
+            type="button"
+            onClick={() => void toggleFullscreen()}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl bg-sky-500 px-3 text-xs font-extrabold text-white shadow-glow"
+          >
+            <Maximize size={14} aria-hidden />Full Screen
+          </button>
+
+          {liveSiblings.length > 1 && (
+            <button
+              type="button"
+              onClick={() => togglePanel('channels')}
+              className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+            >
+              <ListVideo size={15} className="text-cyanx" aria-hidden />Channels ({liveSiblings.length})
+            </button>
+          )}
+
+          {recallCh && (
+            <button
+              type="button"
+              onClick={() => navigate(`/player/${encodeURIComponent(recallCh.id)}`)}
+              className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-cyanx hover:border-sky-400"
+            >
+              <Undo2 size={14} aria-hidden />Recall
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => togglePanel('quality')}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <Gauge size={14} className="text-cyanx" aria-hidden />{snap.currentQualityLabel}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => togglePanel('audio')}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <AudioLines size={14} className="text-cyanx" aria-hidden />
+            Audio{snap.audioTracks.length > 1 ? ` (${snap.audioTracks.length})` : `: ${snap.audioLabel}`}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => togglePanel('subs')}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <Subtitles size={14} className="text-cyanx" aria-hidden />Subtitles
+          </button>
+
+          <button
+            type="button"
+            onClick={cycleAspect}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <Frame size={14} className="text-cyanx" aria-hidden />Aspect: {currentAspectMeta.short}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => togglePanel('picture')}
+            className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold ${
+              filterCss ? 'border-sky-400 bg-sky-500/15 text-cyanx' : 'border-border bg-card text-silver hover:border-sky-400'
+            }`}
+          >
+            <SlidersHorizontal size={14} aria-hidden />Picture EQ
+          </button>
+
+          <button
+            type="button"
+            onClick={() => (recState === 'idle' ? togglePanel('rec') : void stopRecording())}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            {recState === 'idle' ? <Circle size={12} className="fill-red-500 text-red-500" /> : <Square size={12} className="animate-pulse fill-red-500 text-red-500" />}
+            {recState === 'idle' ? 'Record' : 'Stop Rec'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => togglePanel('more')}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <Settings2 size={14} aria-hidden />More / Sleep
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void requestPip()}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 text-xs font-bold text-silver hover:border-sky-400"
+          >
+            <PictureInPicture2 size={14} aria-hidden />PiP
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatsOn(!statsOn)}
+            className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold ${
+              statsOn ? 'border-sky-400 bg-sky-500/15 text-cyanx' : 'border-border bg-card text-silver hover:border-sky-400'
+            }`}
+          >
+            <Activity size={14} aria-hidden />Stats
+          </button>
+        </div>
+      )}
+
       {/* Status chips */}
-      <div className="chips-row -mx-3 mt-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:px-0" aria-label="Stream status">
+      <div className="chips-row mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5" aria-label="Stream status">
         {[
           ['Engine', snap.engine],
           ['Format', snap.format.toUpperCase()],
-          ['Quality', snap.bitrateKbps ? `${snap.currentQualityLabel} · ${snap.bitrateKbps} kbps` : snap.currentQualityLabel],
           ['Resolution', snap.resolution],
-          ['Audio', `${snap.audioLabel}${snap.audioTracks.length > 1 ? ` (${snap.audioTracks.length})` : ''}`],
-          ['Picture', settings.videoPreset],
-          ['Subtitles', snap.subtitleTracks.find((t) => t.id === snap.subtitleId)?.label ?? 'Off'],
           ['Buffer', `${bufferAhead}s`],
-          ['Dropped', `${snap.droppedFrames} frames`],
-          ['Speed', `${snap.rate}×`],
           ...(sleepMin > 0 ? [['Sleep', `${sleepMin}m`]] : []),
-          ['State', snap.reconnecting ? `reconnecting ${snap.reconnectAttempt}/${snap.maxReconnects}` : snap.attempts > 1 ? `${snap.state} · src ${snap.attempt}/${snap.attempts}` : snap.state],
+          ['State', snap.reconnecting ? `reconnecting ${snap.reconnectAttempt}/${snap.maxReconnects}` : snap.state],
         ].map(([k, v]) => (
-          <span key={k} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1.5 text-[11px]">
+          <span key={k} className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px]">
             <span className="font-semibold uppercase tracking-wide text-muted">{k}</span>
-            <strong className="max-w-[165px] truncate text-silver">{v}</strong>
+            <strong className="max-w-[140px] truncate text-silver">{v}</strong>
           </span>
         ))}
         <span className="hidden items-center gap-2 px-1 text-[11px] text-muted xl:inline-flex">
@@ -1165,14 +1476,14 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               const text = `Watching “${cleanTitle(item.title)}” on SIRAVEX`;
               try {
                 if (navigator.share) await navigator.share({ title: 'SIRAVEX', text });
-                else { await navigator.clipboard.writeText(text); setNotice('Title copied (private links kabhi share nahi hote).'); }
+                else { await navigator.clipboard.writeText(text); setNotice('Title copied.'); }
               } catch { /* cancelled */ }
             }}
             className="inline-flex items-center gap-1 font-semibold text-cyanx hover:underline"
           >
             <Share2 size={13} aria-hidden />Share
           </button>
-          <span className="inline-flex items-center gap-1"><Moon size={13} aria-hidden />Sleep &amp; Aspect More (⚙) mein</span>
+          <span className="inline-flex items-center gap-1"><Moon size={13} aria-hidden />Sleep &amp; Speed More mein</span>
         </span>
       </div>
 

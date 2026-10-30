@@ -1,12 +1,13 @@
 rules_version = '2';
-// SIRAVEX Firestore Security Rules — INHEIN DEPLOY KARNA ZAROORI HAI:
+// SIRAVEX Firestore Security Rules v4.0 — INHEIN DEPLOY KARNA ZAROORI HAI:
 // Firebase Console → Firestore Database → Rules → ye paste karke Publish,
 // ya CLI: firebase deploy --only firestore:rules
-// Bina rules ke admin panel users nahi parh sakega (by design — privacy).
+// Bina rules ke admin panel aur Cloud Playlist Vault kaam nahi karenge (by design — privacy).
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function isAdmin() {
       return isSignedIn() && request.auth.token.email in [
         'muaaziqbal.vip@gmail.com' // <-- apna admin email yahan bhi rakhein (firebase.ts ADMIN_EMAILS se match)
@@ -15,9 +16,20 @@ service cloud.firestore {
 
     // Har user apni profile/presence khud likhta hai; parhna sirf khud ya admin.
     match /users/{uid} {
-      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow create, update: if isSignedIn() && request.auth.uid == uid;
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || isOwner(uid);
+      allow create, update: if isOwner(uid);
+      allow delete: if isAdmin() || isOwner(uid);
+
+      // Private Cloud Playlist Vault (Xtream & M3U sources — AES-GCM encrypted client-side).
+      // Sirf account ka asal maalik (uid) read/write/delete kar sakta hai.
+      match /playlists/{playlistId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Private Cloud Preferences & Favourites Vault.
+      match /vault/{docId} {
+        allow read, write: if isOwner(uid);
+      }
     }
 
     // Watch events: login user apne naam par banata hai; parhna sirf admin.

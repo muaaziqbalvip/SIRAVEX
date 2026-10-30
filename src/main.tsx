@@ -19,11 +19,11 @@ const updateSW = registerSW({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <AppProvider>
-        <AuthProvider>
+      <AuthProvider>
+        <AppProvider>
           <App />
-        </AuthProvider>
-      </AppProvider>
+        </AppProvider>
+      </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
 );

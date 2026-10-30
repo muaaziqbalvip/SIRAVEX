@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus } from 'lucide-react';
+import { CheckCircle2, ListVideo, LogIn, RefreshCw, UserPlus } from 'lucide-react';
 import { Button, Card, Input } from '@/components/ui/ui';
 import { useAuth } from '@/services/firebase/AuthContext';
+import { useStore } from '@/app/store';
 import { authErrorMessage, signInWithEmail, signInWithGoogle, registerWithEmail, signOutUser } from '@/services/firebase/firebase';
 import { usePageMeta } from '@/lib/seo';
 
 export function LoginPage() {
-  usePageMeta('Login — SIRAVEX', 'Sign in to SIRAVEX with Google or email to sync your presence, get update announcements and manage your account.');
+  usePageMeta('Account & Cloud Sync — SIRAVEX', 'Sign in to SIRAVEX with Google or email to back up Xtream & M3U playlists in Firebase Cloud across devices.');
   const { user, loading } = useAuth();
+  const { playlists, favourites, cloudSyncState, lastCloudSyncAt, syncCloudNow, toast } = useStore();
   const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
@@ -19,20 +21,50 @@ export function LoginPage() {
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true); setError('');
-    try { await fn(); navigate('/'); } catch (e) { setError(authErrorMessage(e)); } finally { setBusy(false); }
+    try { await fn(); navigate('/playlists'); } catch (e) { setError(authErrorMessage(e)); } finally { setBusy(false); }
   };
 
   if (!loading && user) {
+    const cloudCount = playlists.filter((p) => p.type !== 'demo' && p.cloudSynced).length;
     return (
-      <div className="mx-auto w-full max-w-md">
+      <div className="mx-auto w-full max-w-lg">
         <Card className="text-center">
-          {user.photoURL ? <img src={user.photoURL} alt="" width={64} height={64} className="mx-auto h-16 w-16 rounded-full" /> : <img src="/icons/logo-256.png" alt="" width={64} height={64} className="mx-auto h-16 w-16 rounded-2xl" />}
-          <h1 className="mt-3 text-xl font-extrabold">{user.displayName || 'SIRAVEX User'}</h1>
+          {user.photoURL ? (
+            <img src={user.photoURL} alt="" width={68} height={68} className="mx-auto h-[68px] w-[68px] rounded-full border border-sky-400/40" />
+          ) : (
+            <img src="/icons/logo-256.png" alt="" width={68} height={68} className="mx-auto h-[68px] w-[68px] rounded-2xl" />
+          )}
+          <h1 className="mt-3 text-xl font-extrabold">{user.displayName || 'SIRAVEX Pro User'}</h1>
           <p className="mt-1 text-sm text-muted">{user.email}</p>
-          <p className="mt-3 text-sm leading-6 text-muted">Aap login hain. Aapki activity (konsa channel dekha, kab active thay) sirf aapke account aur SIRAVEX admin ko nazar aati hai — stream links kabhi track nahi hote.</p>
+
+          <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-950/30 p-3.5 text-left">
+            <p className="flex items-center gap-2 text-sm font-extrabold text-emerald-300">
+              <CheckCircle2 size={17} aria-hidden />Firebase Cloud Vault Active
+            </p>
+            <p className="mt-1 text-xs leading-5 text-silver/85">
+              <strong>{cloudCount}</strong> playlist(s) aur <strong>{favourites.length}</strong> favourite(s) AES-256 encryption ke saath aapke Firebase account mein mehfooz hain.
+              {lastCloudSyncAt ? ` Last synced ${new Date(lastCloudSyncAt).toLocaleTimeString()}.` : ''}
+            </p>
+          </div>
+
           <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Link to="/"><Button>Home par jayein</Button></Link>
-            <Button variant="outline" onClick={() => void signOutUser()}>Logout</Button>
+            <Button
+              variant="outline"
+              disabled={cloudSyncState === 'syncing'}
+              onClick={async () => {
+                try {
+                  const { pushed, pulled } = await syncCloudNow();
+                  toast({ tone: 'success', title: 'Cloud Synced', body: `Pushed ${pushed} · Restored ${pulled}` });
+                } catch (e) {
+                  toast({ tone: 'error', title: 'Sync Error', body: e instanceof Error ? e.message : 'Failed' });
+                }
+              }}
+            >
+              <RefreshCw size={15} className={cloudSyncState === 'syncing' ? 'animate-spin' : ''} aria-hidden />
+              {cloudSyncState === 'syncing' ? 'Syncing…' : 'Sync Cloud Now'}
+            </Button>
+            <Link to="/playlists"><Button><ListVideo size={16} aria-hidden />Manage Playlists</Button></Link>
+            <Button variant="ghost" onClick={() => void signOutUser()}>Logout</Button>
           </div>
         </Card>
       </div>
@@ -43,8 +75,10 @@ export function LoginPage() {
     <div className="mx-auto w-full max-w-md">
       <div className="mb-4 text-center">
         <img src="/icons/logo-256.png" alt="SIRAVEX" width={60} height={60} className="mx-auto h-[60px] w-[60px] rounded-2xl shadow-glow" />
-        <h1 className="mt-3 text-2xl font-extrabold">{mode === 'login' ? 'Welcome back' : 'Create account'}</h1>
-        <p className="mt-1 text-sm text-muted">Login sirf sync, announcements aur admin features ke liye hai — baghair login ke bhi poora player chalta hai.</p>
+        <h1 className="mt-3 text-2xl font-extrabold">{mode === 'login' ? 'Sign in to Cloud Vault' : 'Create Cloud Account'}</h1>
+        <p className="mt-1 text-sm text-muted">
+          Apni Xtream Codes aur M3U playlists encrypted Firebase Cloud mein save karein taake kisi bhi device par login karte hi aapke channels ajayein.
+        </p>
       </div>
       <Card>
         <Button className="w-full" disabled={busy} onClick={() => void run(signInWithGoogle)}>
@@ -62,7 +96,9 @@ export function LoginPage() {
         <p className="mt-4 text-center text-sm text-muted">
           {mode === 'login' ? <>Account nahi hai? <button type="button" className="font-semibold text-cyanx hover:underline" onClick={() => setMode('register')}>Sign up karein</button></> : <>Pehle se account hai? <button type="button" className="font-semibold text-cyanx hover:underline" onClick={() => setMode('login')}>Login karein</button></>}
         </p>
-        <p className="mt-3 border-t border-border pt-3 text-[11px] leading-5 text-muted">Login karne par aapki profile (naam, email, photo), online status aur dekhe gaye channels ke <em>naam</em> admin dashboard mein nazar aate hain taake service behtar ki ja sake. Stream URLs, tokens aur passwords kabhi collect nahi hote.</p>
+        <p className="mt-3 border-t border-border pt-3 text-[11px] leading-5 text-muted">
+          Security: aapke Xtream aur M3U credentials browser ke andar AES-256-GCM se encrypt ho kar aapke private <code>users/&#123;uid&#125;/playlists</code> vault mein save hote hain, jise sirf aapka account khol sakta hai.
+        </p>
       </Card>
     </div>
   );

@@ -276,7 +276,8 @@ export function AppShell() {
         </header>
 
         <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3.5 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}>
-          <div key={location.pathname} className="svx-page"><Outlet /></div>
+          {/* Keep /player/* mounted across channel switches so Fullscreen & GPU video pipeline stay hot! */}
+          <div key={location.pathname.startsWith('/player/') ? '/player' : location.pathname} className="svx-page"><Outlet /></div>
         </main>
       </div>
 

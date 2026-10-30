@@ -205,29 +205,40 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
 
+  const curItemRef = useRef(item);
+  curItemRef.current = item;
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  // Mount ONE hot PlaybackEngine instance for the lifetime of PlayerShell (zero listener churn across channel zaps!)
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    resumedRef.current = false;
-    setRecState('idle'); setRecBytes(0); setRecSecs(0);
-    setPanel('none');
-    setZapDigits('');
+    video.volume = settingsRef.current.defaultVolume;
+    video.playbackRate = settingsRef.current.playbackSpeed;
     const engine = new PlaybackEngine(video);
     engineRef.current = engine;
     const unsub = engine.subscribe((s) => {
       setSnap(s);
+      const curItem = curItemRef.current;
       if ((s.state === 'playing' || s.state === 'paused') && s.duration > 0) {
-        saveProgress(item.id, s.currentTime, s.duration);
+        saveProgress(curItem.id, s.currentTime, s.duration);
       }
       if (s.state === 'error' && s.error) {
-        void logDiagnostic(s.error.category, `${s.error.message}${s.error.codeLabel ? ` [${s.error.codeLabel}]` : ''}`, item.url);
+        void logDiagnostic(
+          s.error.category,
+          `${s.error.message}${s.error.codeLabel ? ` [${s.error.codeLabel}]` : ''}`,
+          curItem.url,
+        );
       }
       if ((s.state === 'playing' || s.state === 'paused') && !resumedRef.current) {
         resumedRef.current = true;
-        const saved = progress.find((p) => p.itemId === item.id);
+        const saved = progressRef.current.find((p) => p.itemId === curItem.id);
         if (
-          item.kind !== 'live' &&
-          settings.resumePlayback &&
+          curItem.kind !== 'live' &&
+          settingsRef.current.resumePlayback &&
           saved &&
           saved.position > 10 &&
           saved.duration > 0 &&
@@ -238,8 +249,35 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
         }
       }
     });
-    video.volume = settings.defaultVolume;
-    video.playbackRate = settings.playbackSpeed;
+    return () => {
+      unsub();
+      engine.destroy();
+      engineRef.current = null;
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+      if (tapTimer.current) window.clearTimeout(tapTimer.current);
+      if (zapTimer.current) window.clearTimeout(zapTimer.current);
+      if (extSubUrl.current) { URL.revokeObjectURL(extSubUrl.current); extSubUrl.current = null; }
+      const rec = recorderRef.current;
+      if (rec && rec.state !== 'idle') {
+        void rec.stop().then((r) => {
+          if (r.blob) downloadRecording(r.blob, recBaseRef.current || 'siravex-recording', r.ext);
+        }).catch(() => undefined);
+      }
+      video.querySelectorAll('track[data-siravex-ext]').forEach((t) => t.remove());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Instant hot-swap stream load when switching channels or opening a new item
+  useEffect(() => {
+    const video = videoRef.current;
+    const engine = engineRef.current;
+    if (!video || !engine) return;
+    resumedRef.current = false;
+    setRecState('idle'); setRecBytes(0); setRecSecs(0);
+    setPanel('none');
+    setZapDigits('');
+    setNotice('');
 
     const mergedOpts: LoadOptions = {
       forcedFormat: loadOpts?.forcedFormat ?? item.forcedFormat,
@@ -255,12 +293,6 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     void engine.load(item.url, mergedOpts);
     poke(false);
     return () => {
-      unsub();
-      engine.destroy();
-      engineRef.current = null;
-      if (hideTimer.current) window.clearTimeout(hideTimer.current);
-      if (tapTimer.current) window.clearTimeout(tapTimer.current);
-      if (zapTimer.current) window.clearTimeout(zapTimer.current);
       if (extSubUrl.current) { URL.revokeObjectURL(extSubUrl.current); extSubUrl.current = null; }
       const rec = recorderRef.current;
       if (rec && rec.state !== 'idle') {

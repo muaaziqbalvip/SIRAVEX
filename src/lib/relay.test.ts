@@ -44,6 +44,12 @@ describe('API Relay SSRF protection & manifest rewriting', () => {
     expect(out).toContain(encodeURIComponent('http://cdn.example.com/live/ch1/720p/index.m3u8'));
     expect(out).toContain(encodeURIComponent('http://cdn.example.com/live/ch1/seg-001.ts'));
     expect(out).toContain(`&ref=${encodeURIComponent('https://player.example.com/')}`);
+    expect(out).toContain('&seg=1');
+
+    // Root-relative mode (base = '') avoids proxy http/https Mixed-Content bugs
+    const relOut = rewriteHlsManifest(manifest, 'http://cdn.example.com/live/ch1/master.m3u8', '', '');
+    expect(relOut).toContain('\n/api/relay?u=');
+    expect(relOut).not.toContain('http://localhost/api/relay');
   });
 
   it('rewrites DASH MPD BaseURL & SegmentTemplate URLs while preserving $Number$ tokens and referrer', () => {

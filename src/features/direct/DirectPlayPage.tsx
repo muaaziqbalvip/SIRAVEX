@@ -165,7 +165,7 @@ export function DirectPlayPage() {
       </Card>
 
       {item && playing ? (
-        <div key={playing.at}>
+        <div>
           <PlayerShell item={item} loadOpts={playing.opts} />
           <MzAdSlot slot="banner" placement="player" className="mt-4" />
           <p className="mt-3 text-xs leading-5 text-muted">

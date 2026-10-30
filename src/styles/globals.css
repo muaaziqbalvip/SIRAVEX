@@ -59,8 +59,9 @@ input[type="range"] { cursor: pointer; }
 }
 
 video { max-height: 100%; }
-@keyframes svx-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-main > div { animation: svx-fade-up .24s ease both; min-width: 0; max-width: 100%; }
+/* Opacity-only page transition: NEVER set transform on main > div because CSS transform breaks position:fixed Full-View player & modals! */
+@keyframes svx-fade-up { from { opacity: 0; } to { opacity: 1; } }
+main > div { animation: svx-fade-up .18s ease both; min-width: 0; max-width: 100%; }
 body.reduce-motion main > div { animation: none; }
 
 /* Thin premium scrollbars (sidebar / panels) */
@@ -69,7 +70,7 @@ body.reduce-motion main > div { animation: none; }
 .nice-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
 .nice-scroll::-webkit-scrollbar-track { background: transparent; }
 
-.svx-page { animation: svx-fade-up .26s cubic-bezier(.22,.8,.32,1) both; min-width: 0; max-width: 100%; }
+.svx-page { animation: svx-fade-up .18s ease both; min-width: 0; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .svx-page { animation: none; }
 }

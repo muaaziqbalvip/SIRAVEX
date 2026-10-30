@@ -1,18 +1,25 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, Play } from 'lucide-react';
+import { ChevronDown, Lock, Play } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, EmptyState, Skeleton, useDebounced } from '@/components/ui/ui';
 import { SafeImage } from '@/components/media/MediaCard';
+import { PinModal } from '@/components/ui/PinModal';
+import { isMediaLocked } from '@/lib/parental';
 
 export function SeriesPage() {
-  const { ready, items, playlists, progress, loadSeriesEpisodes, toast } = useStore();
+  const { ready, items, playlists, progress, settings, parentalUnlocked, loadSeriesEpisodes, toast } = useStore();
   const [q, setQ] = useState(''); const dq = useDebounced(q);
   const [open, setOpen] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [passFor, setPassFor] = useState<Record<string, string>>({});
+  const [pinOpen, setPinOpen] = useState(false);
+
   const enabled = useMemo(() => new Set(playlists.filter((p) => p.enabled).map((p) => p.id)), [playlists]);
-  const visibleSeries = useMemo(() => items.filter((i) => i.kind === 'series' && enabled.has(i.playlistId)), [items, enabled]);
+  const allSeries = useMemo(() => items.filter((i) => i.kind === 'series' && enabled.has(i.playlistId)), [items, enabled]);
+  const lockedCount = useMemo(() => allSeries.filter((i) => isMediaLocked(i, settings, parentalUnlocked)).length, [allSeries, settings, parentalUnlocked]);
+  const visibleSeries = useMemo(() => allSeries.filter((i) => !isMediaLocked(i, settings, parentalUnlocked)), [allSeries, settings, parentalUnlocked]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, { title: string; poster?: string; group: string; description?: string; eps: typeof visibleSeries; placeholder?: (typeof visibleSeries)[number] }>();
     for (const ep of visibleSeries) {
@@ -26,12 +33,21 @@ export function SeriesPage() {
       .filter((g) => g.title.toLowerCase().includes(dq.toLowerCase()))
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [visibleSeries, dq]);
+
   if (!ready) return <Skeleton className="h-64" />;
   if (playlists.length === 0) return <EmptyState title="No series yet" body="Import a playlist with series episodes, or connect Xtream — series arrive grouped by show and season automatically." action={<Link to="/playlists"><Button>Add Playlist</Button></Link>} />;
   const shown = grouped.slice(0, 60);
+
   return (
     <div>
-      <h1 className="mb-3 text-xl font-extrabold sm:text-2xl">Series</h1>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-xl font-extrabold sm:text-2xl">Series</h1>
+        {lockedCount > 0 && (
+          <button type="button" onClick={() => setPinOpen(true)} className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-950/40 px-3 text-xs font-bold text-amber-300">
+            <Lock size={13} aria-hidden />{lockedCount} Locked
+          </button>
+        )}
+      </div>
       <label className="sr-only" htmlFor="series-q">Search series</label>
       <input id="series-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search series…" className="mb-4 min-h-[46px] w-full rounded-xl border border-border bg-panel px-3.5 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30" />
       {grouped.length === 0 ? <EmptyState title="No series found" body="No episodes could be grouped into series from your current sources. Xtream users: reconnect to fetch the series catalogue." /> : (
@@ -84,6 +100,7 @@ export function SeriesPage() {
           {grouped.length > shown.length && <p className="text-center text-xs text-muted">Showing {shown.length} shows — search se narrow karein.</p>}
         </div>
       )}
+      <PinModal open={pinOpen} onClose={() => setPinOpen(false)} />
     </div>
   );
 }

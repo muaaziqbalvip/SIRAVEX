@@ -1,3 +1,3 @@
-export const APP_VERSION = '3.5.0';
-export const APP_BUILD = 'SIRAVEX-010';
-export const APP_CODENAME = 'Apex';
+export const APP_VERSION = '4.0.0';
+export const APP_BUILD = 'SIRAVEX-011';
+export const APP_CODENAME = 'Ultra Pro';

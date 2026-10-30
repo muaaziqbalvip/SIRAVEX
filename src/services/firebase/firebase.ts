@@ -1,3 +1,5 @@
+import { APP_VERSION } from '@/lib/version';
+
 /**
  * SIRAVEX cloud layer — Firebase (project: siravex-b6f72).
  * Config yahan public client config hai (Firebase web apiKey secret nahi hota;
@@ -48,7 +50,7 @@ export async function startAnalytics(): Promise<void> {
   try {
     const { getAnalytics, isSupported, logEvent } = await import('firebase/analytics');
     const { app } = await getFirebase();
-    if (await isSupported()) logEvent(getAnalytics(app), 'app_open', { version: '3.4.0' });
+    if (await isSupported()) logEvent(getAnalytics(app), 'app_open', { version: APP_VERSION });
   } catch { /* analytics optional hai */ }
 }
 

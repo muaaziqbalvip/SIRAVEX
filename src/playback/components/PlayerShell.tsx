@@ -4,7 +4,7 @@ import {
   Activity, AudioLines, Camera, Check, ChevronLeft, ChevronRight, Circle,
   ExternalLink, Gauge, Heart, ListVideo, Maximize, Minimize, Moon, Pause,
   PictureInPicture2, Play, Radio, RotateCcw, Search, Settings2, Share2,
-  Square, Subtitles, Upload, Volume2, VolumeX, Wifi, X,
+  SlidersHorizontal, Square, Subtitles, Undo2, Upload, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import {
   StreamRecorder, RecorderError, REC_QUALITIES, MEMORY_WARN_BYTES,
@@ -12,15 +12,16 @@ import {
 } from '@/lib/recorder';
 import { INITIAL_SNAPSHOT, PlaybackEngine, type LoadOptions, type PlayerSnapshot } from '@/playback/engine';
 import { humanLanguageName } from '@/playback/tracks';
+import { VIDEO_PICTURE_PRESET_LIST, buildVideoFilterCss } from '@/lib/m3u-export';
 import { Button, formatTime } from '@/components/ui/ui';
 import { useStore } from '@/app/store';
 import { cleanGroup, cleanTitle } from '@/lib/display';
 import { isSubtitleFile, srtToVtt } from '@/lib/subtitles';
 import { trackWatch, trackWatchMinute } from '@/services/firebase/tracking';
 import { matchesChannelEpg } from '@/services/epg/xmltv';
-import type { MediaItem } from '@/types/models';
+import type { MediaItem, VideoPicturePreset } from '@/types/models';
 
-type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'channels' | 'more' | 'rec';
+type Panel = 'none' | 'quality' | 'audio' | 'subs' | 'channels' | 'picture' | 'more' | 'rec';
 type AspectMode = 'contain' | 'cover' | 'fill' | '4:3';
 
 const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = {
@@ -28,6 +29,7 @@ const PANEL_TITLES: Record<Exclude<Panel, 'none'>, string> = {
   audio: 'Audio Tracks',
   subs: 'Subtitles & Captions',
   channels: 'Quick Channel Switcher',
+  picture: 'Video Picture Equalizer',
   more: 'Aspect Ratio, Speed & Sleep Timer',
   rec: 'Stream Recorder',
 };
@@ -50,6 +52,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const hideTimer = useRef<number | null>(null);
   const sleepTimer = useRef<number | null>(null);
   const tapTimer = useRef<number | null>(null);
+  const zapTimer = useRef<number | null>(null);
   const lastTapAt = useRef<number>(0);
   const extSubUrl = useRef<string | null>(null);
   const subInputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +67,9 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   useEffect(() => { panelRef.current = panel; }, [panel]);
   const [aspect, setAspect] = useState<AspectMode>('contain');
   const [seekFlash, setSeekFlash] = useState<'left' | 'right' | null>(null);
+  const [zapDigits, setZapDigits] = useState('');
+  const zapDigitsRef = useRef('');
+  useEffect(() => { zapDigitsRef.current = zapDigits; }, [zapDigits]);
   const [chQuery, setChQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [statsOn, setStatsOn] = useState(false);
@@ -78,7 +84,10 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const diskSupported = typeof window !== 'undefined' && typeof (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
   const [controlsVisible, setControlsVisible] = useState(true);
 
-  const { settings, saveProgress, logDiagnostic, programmes, items, progress, toggleFavourite, isFavourite } = useStore();
+  const {
+    settings, updateSettings, saveProgress, recordLiveWatch, previousLiveId,
+    logDiagnostic, programmes, items, progress, toggleFavourite, isFavourite,
+  } = useStore();
   const fav = isFavourite(item.id);
 
   const liveSiblings = useMemo(
@@ -95,6 +104,16 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const sibIdx = liveSiblings.findIndex((i) => i.id === item.id);
   const prevCh = sibIdx > 0 ? liveSiblings[sibIdx - 1] : undefined;
   const nextCh = sibIdx >= 0 && sibIdx < liveSiblings.length - 1 ? liveSiblings[sibIdx + 1] : undefined;
+  const recallCh = useMemo(
+    () => (item.kind === 'live' && previousLiveId && previousLiveId !== item.id ? items.find((i) => i.id === previousLiveId && i.kind === 'live') : undefined),
+    [item.kind, item.id, previousLiveId, items],
+  );
+
+  const zapPreviewChannel = useMemo(() => {
+    if (!zapDigits || liveSiblings.length === 0) return undefined;
+    const n = Number(zapDigits);
+    return n >= 1 && n <= liveSiblings.length ? liveSiblings[n - 1] : undefined;
+  }, [zapDigits, liveSiblings]);
 
   const nowNext = useMemo(() => {
     const list = programmes.filter((p) => matchesChannelEpg(p.channelId, item)).sort((a, b) => a.start - b.start);
@@ -164,6 +183,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     resumedRef.current = false;
     setRecState('idle'); setRecBytes(0); setRecSecs(0);
     setPanel('none');
+    setZapDigits('');
     const engine = new PlaybackEngine(video);
     engineRef.current = engine;
     const unsub = engine.subscribe((s) => {
@@ -212,6 +232,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       engineRef.current = null;
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
       if (tapTimer.current) window.clearTimeout(tapTimer.current);
+      if (zapTimer.current) window.clearTimeout(zapTimer.current);
       if (extSubUrl.current) { URL.revokeObjectURL(extSubUrl.current); extSubUrl.current = null; }
       const rec = recorderRef.current;
       if (rec && rec.state !== 'idle') {
@@ -238,7 +259,13 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   useEffect(() => { watchTracked.current = false; }, [item.id]);
   useEffect(() => {
     if (snap.state !== 'playing') return;
-    if (!watchTracked.current) { watchTracked.current = true; void trackWatch(item); }
+    if (!watchTracked.current) {
+      watchTracked.current = true;
+      void trackWatch(item);
+      if (item.kind === 'live' && item.playlistId !== 'direct') {
+        recordLiveWatch(item.id);
+      }
+    }
     const iv = window.setInterval(() => void trackWatchMinute(item), 60000);
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,18 +294,49 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
     });
   }, []);
 
+  const commitZap = useCallback((digits: string) => {
+    if (zapTimer.current) { window.clearTimeout(zapTimer.current); zapTimer.current = null; }
+    setZapDigits('');
+    const num = Number(digits);
+    if (num >= 1 && num <= liveSiblings.length) {
+      const target = liveSiblings[num - 1];
+      if (target && target.id !== item.id) {
+        navigate(`/player/${encodeURIComponent(target.id)}`);
+      }
+    } else if (num > 0) {
+      setNotice(`Channel #${num} is playlist mein maujood nahi (1–${liveSiblings.length}).`);
+    }
+  }, [liveSiblings, item.id, navigate]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest('input,textarea,select,[contenteditable="true"]')) return;
       const eng = engineRef.current;
       if (!eng) return;
+
+      // Numeric TV remote channel zapping (0-9) on Live TV
+      if (item.kind === 'live' && liveSiblings.length > 1 && /^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        const nextDigits = (zapDigitsRef.current + e.key).slice(0, 4);
+        setZapDigits(nextDigits);
+        if (zapTimer.current) window.clearTimeout(zapTimer.current);
+        zapTimer.current = window.setTimeout(() => commitZap(nextDigits), 1200);
+        return;
+      }
+      if (e.key === 'Enter' && zapDigitsRef.current) {
+        e.preventDefault();
+        commitZap(zapDigitsRef.current);
+        return;
+      }
+
       if (e.code === 'Space' || e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         snap.state === 'playing' ? eng.pause() : eng.play();
       } else if (e.key === 'm' || e.key === 'M') eng.toggleMute();
       else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); void toggleFullscreen(); }
       else if (e.key === 'a' || e.key === 'A') cycleAspect();
+      else if ((e.key === 'l' || e.key === 'L') && recallCh) navigate(`/player/${encodeURIComponent(recallCh.id)}`);
       else if ((e.key === 'c' || e.key === 'C') && liveSiblings.length > 1) setPanel((p) => (p === 'channels' ? 'none' : 'channels'));
       else if (e.key === 'PageUp' && nextCh) navigate(`/player/${encodeURIComponent(nextCh.id)}`);
       else if (e.key === 'PageDown' && prevCh) navigate(`/player/${encodeURIComponent(prevCh.id)}`);
@@ -286,12 +344,12 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       else if (e.key === 'ArrowLeft') eng.seekBy(-10);
       else if (e.key === 'ArrowUp') { e.preventDefault(); eng.setVolume(Math.min(1, snap.volume + 0.1)); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); eng.setVolume(Math.max(0, snap.volume - 0.1)); }
-      else if (e.key === 'Escape') setPanel('none');
+      else if (e.key === 'Escape') { setZapDigits(''); setPanel('none'); }
       poke(snap.state === 'playing');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [snap.state, snap.volume, poke, toggleFullscreen, cycleAspect, liveSiblings.length, nextCh, prevCh, navigate]);
+  }, [snap.state, snap.volume, poke, toggleFullscreen, cycleAspect, liveSiblings.length, nextCh, prevCh, recallCh, item.kind, commitZap, navigate]);
 
   const flashSeek = (side: 'left' | 'right') => {
     setSeekFlash(side);
@@ -389,16 +447,28 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
   const eng = () => engineRef.current;
   const playing = snap.state === 'playing';
   const showUi = controlsVisible || !playing || panel !== 'none';
+  const filterCss = buildVideoFilterCss(settings);
   const videoStyle: React.CSSProperties = {
     fontSize: settings.subtitleSize === 'small' ? '14px' : settings.subtitleSize === 'large' ? '22px' : '18px',
     color: settings.subtitleColor,
     objectFit: aspect === '4:3' ? 'contain' : aspect,
     maxWidth: aspect === '4:3' ? '75%' : '100%',
     margin: aspect === '4:3' ? '0 auto' : undefined,
+    filter: filterCss || undefined,
   };
   const bufferAhead = Math.max(0, Math.round(snap.bufferedEnd - snap.currentTime));
   const dropPct = snap.totalFrames > 0 ? ((snap.droppedFrames / snap.totalFrames) * 100).toFixed(1) : '0.0';
   const togglePanel = (p: Panel) => setPanel((cur) => (cur === p ? 'none' : p));
+
+  const applyPreset = (id: VideoPicturePreset) => {
+    const found = VIDEO_PICTURE_PRESET_LIST.find((x) => x.id === id) ?? VIDEO_PICTURE_PRESET_LIST[0];
+    updateSettings({
+      videoPreset: found.id,
+      videoBrightness: found.brightness,
+      videoContrast: found.contrast,
+      videoSaturation: found.saturation,
+    });
+  };
 
   const onExternalSubtitle = async (file: File) => {
     const video = videoRef.current;
@@ -534,6 +604,64 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       );
     }
 
+    if (panel === 'picture') {
+      return (
+        <div className="px-2">
+          <p className="pb-1.5 text-[11px] font-bold uppercase tracking-wider text-white/50">Picture Mode Presets</p>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+            {VIDEO_PICTURE_PRESET_LIST.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p.id)}
+                className={`rounded-xl border px-3 py-2 text-left transition ${
+                  settings.videoPreset === p.id
+                    ? 'border-sky-400 bg-sky-500/25 text-white'
+                    : 'border-white/10 bg-white/5 text-white/85 hover:bg-white/10'
+                }`}
+              >
+                <span className="block text-xs font-extrabold">{p.label}</span>
+                <span className="block truncate text-[10px] text-white/60">{p.sub}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 grid gap-2.5 rounded-2xl border border-white/10 bg-white/5 p-3">
+            {([
+              ['Brightness', 'videoBrightness', settings.videoBrightness],
+              ['Contrast', 'videoContrast', settings.videoContrast],
+              ['Saturation', 'videoSaturation', settings.videoSaturation],
+            ] as const).map(([label, key, val]) => (
+              <label key={key} className="grid gap-1 text-xs text-white/85">
+                <span className="flex justify-between font-semibold">
+                  <span>{label}</span>
+                  <span className="font-mono text-cyanx">{val}%</span>
+                </span>
+                <input
+                  type="range"
+                  min={50}
+                  max={150}
+                  step={2}
+                  value={val}
+                  onChange={(e) => updateSettings({ videoPreset: 'custom', [key]: Number(e.target.value) })}
+                  className="accent-sky-400"
+                />
+              </label>
+            ))}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => applyPreset('standard')}
+                className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-bold text-white/80 hover:bg-white/20"
+              >
+                Reset to 100%
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (panel === 'channels') {
       return (
         <div>
@@ -542,19 +670,20 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
             <input
               value={chQuery}
               onChange={(e) => setChQuery(e.target.value)}
-              placeholder={`Search ${liveSiblings.length} channels…`}
+              placeholder={`Search ${liveSiblings.length} channels (or type 0-9 on player)…`}
               aria-label="Search channels in player"
               className="min-h-[42px] w-full rounded-xl border border-white/15 bg-white/5 pl-9 pr-3 text-sm text-white placeholder:text-white/45 focus:border-sky-400 focus:outline-none"
             />
           </div>
           <div className="grid gap-1" role="listbox" aria-label="Live channels">
-            {filteredSiblings.map((ch) =>
-              optionRow(
-                { id: ch.id, label: cleanTitle(ch.title), sub: cleanGroup(ch.group) },
+            {filteredSiblings.map((ch) => {
+              const num = liveSiblings.findIndex((x) => x.id === ch.id) + 1;
+              return optionRow(
+                { id: ch.id, label: `${num > 0 ? `#${num} · ` : ''}${cleanTitle(ch.title)}`, sub: cleanGroup(ch.group) },
                 item.id,
                 (id) => navigate(`/player/${encodeURIComponent(id)}`),
-              ),
-            )}
+              );
+            })}
             {filteredSiblings.length === 0 && (
               <p className="px-3 py-3 text-xs text-white/60">Koi channel match nahi hua.</p>
             )}
@@ -634,7 +763,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
         </div>
         <p className="px-2 pb-1 pt-3 text-[11px] font-bold uppercase tracking-wider text-white/50">Sleep timer</p>
         <div className="grid gap-1" role="listbox" aria-label="Sleep timer">
-          {[0, 15, 30, 45, 60].map((m) =>
+          {[0, 15, 30, 45, 60, 90].map((m) =>
             optionRow(
               { id: String(m), label: m === 0 ? 'Off' : `${m} minutes`, sub: m > 0 && sleepMin === m ? 'Chal raha hai — waqt pura hone par pause' : undefined },
               String(sleepMin),
@@ -670,6 +799,16 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           onClick={onVideoSurfaceClick}
         />
 
+        {/* TV Set-Top Box Numeric Channel Zapper OSD */}
+        {zapDigits && (
+          <div className="pointer-events-none absolute right-4 top-16 z-30 rounded-2xl border border-cyan-400/50 bg-black/90 px-4 py-2.5 text-right shadow-glow backdrop-blur" role="status">
+            <p className="font-mono text-2xl font-extrabold tracking-widest text-cyanx">CH {zapDigits}</p>
+            <p className="max-w-[220px] truncate text-xs font-semibold text-white/85">
+              {zapPreviewChannel ? cleanTitle(zapPreviewChannel.title) : `1–${liveSiblings.length} available`}
+            </p>
+          </div>
+        )}
+
         {/* Seek feedback ripples */}
         {seekFlash === 'left' && (
           <div className="pointer-events-none absolute left-6 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/75 px-4 py-2 text-xs font-extrabold text-white backdrop-blur">
@@ -686,9 +825,24 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
         <div className={`absolute inset-x-0 top-0 z-10 flex items-center gap-1.5 bg-gradient-to-b from-black/85 to-transparent p-2.5 pb-9 transition-opacity duration-300 sm:gap-2 sm:p-3 ${showUi ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
           <button type="button" onClick={() => (isFullscreen ? void toggleFullscreen() : navigate(-1))} aria-label={isFullscreen ? 'Exit fullscreen' : 'Go back'} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><ChevronLeft size={21} /></button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-white sm:text-base" title={item.title}>{cleanTitle(item.title)}</p>
+            <p className="truncate text-sm font-bold text-white sm:text-base" title={item.title}>
+              {sibIdx >= 0 ? <span className="mr-1.5 font-mono text-xs text-cyanx">#{sibIdx + 1}</span> : null}
+              {cleanTitle(item.title)}
+            </p>
             <p className="truncate text-xs text-white/70">{nowNext.current ? `Now: ${cleanTitle(nowNext.current.title)}` : cleanTitle(item.group)}</p>
           </div>
+          {recallCh && (
+            <button
+              type="button"
+              onClick={() => navigate(`/player/${encodeURIComponent(recallCh.id)}`)}
+              title={`Last Channel Recall (L): ${cleanTitle(recallCh.title)}`}
+              aria-label={`Recall previous channel: ${cleanTitle(recallCh.title)}`}
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-3 text-xs font-bold text-cyanx hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+            >
+              <Undo2 size={15} aria-hidden />
+              <span className="hidden sm:inline">Recall</span>
+            </button>
+          )}
           <button type="button" onClick={() => void eng()?.reconnectNow()} aria-label="Reconnect stream" title="Reconnect / Reload Stream" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><RotateCcw size={17} /></button>
           <button type="button" onClick={() => void toggleFavourite(item.id)} aria-label={fav ? 'Remove from favourites' : 'Add to favourites'} aria-pressed={fav} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><Heart size={18} className={fav ? 'fill-red-400 text-red-400' : ''} /></button>
           <button type="button" onClick={() => setStatsOn(!statsOn)} aria-label="Toggle stream statistics" aria-pressed={statsOn} className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${statsOn ? 'bg-sky-500' : 'bg-black/50 hover:bg-black/70'}`}><Activity size={18} /></button>
@@ -731,6 +885,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               ['Bitrate', snap.bitrateKbps ? `${snap.bitrateKbps} kbps` : '—'],
               ['Quality', snap.currentQualityLabel],
               ['Audio', snap.audioLabel],
+              ['Picture', settings.videoPreset],
               ['Buffer ahead', `${bufferAhead}s`],
               ['Dropped', `${snap.droppedFrames}/${snap.totalFrames} (${dropPct}%)`],
               ['State', snap.reconnecting ? `reconnect ${snap.reconnectAttempt}/${snap.maxReconnects}` : snap.state],
@@ -844,7 +999,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
                 onClick={() => togglePanel('channels')}
                 aria-expanded={panel === 'channels'}
                 aria-label="Quick channel list"
-                title="Channel List (C)"
+                title="Channel List (C / 0-9)"
                 className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
               >
                 <ListVideo size={18} />
@@ -885,6 +1040,19 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               className="grid h-10 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
             >
               <Subtitles size={18} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => togglePanel('picture')}
+              aria-expanded={panel === 'picture'}
+              aria-label="Video picture equalizer"
+              title="Picture Equalizer (Brightness / Contrast / Vivid)"
+              className={`hidden h-10 w-9 shrink-0 place-items-center rounded-full hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx min-[440px]:grid ${
+                filterCss ? 'text-cyanx' : 'text-white'
+              }`}
+            >
+              <SlidersHorizontal size={17} />
             </button>
 
             <button
@@ -957,6 +1125,7 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
           ['Quality', snap.bitrateKbps ? `${snap.currentQualityLabel} · ${snap.bitrateKbps} kbps` : snap.currentQualityLabel],
           ['Resolution', snap.resolution],
           ['Audio', `${snap.audioLabel}${snap.audioTracks.length > 1 ? ` (${snap.audioTracks.length})` : ''}`],
+          ['Picture', settings.videoPreset],
           ['Subtitles', snap.subtitleTracks.find((t) => t.id === snap.subtitleId)?.label ?? 'Off'],
           ['Buffer', `${bufferAhead}s`],
           ['Dropped', `${snap.droppedFrames} frames`],

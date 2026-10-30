@@ -6,6 +6,7 @@ import { useStore } from '@/app/store';
 
 const HomePage = lazy(() => import('@/features/home/HomePage').then((m) => ({ default: m.HomePage })));
 const LiveTvPage = lazy(() => import('@/features/live-tv/LiveTvPage').then((m) => ({ default: m.LiveTvPage })));
+const MultiViewPage = lazy(() => import('@/features/multiview/MultiViewPage').then((m) => ({ default: m.MultiViewPage })));
 const MoviesPage = lazy(() => import('@/features/movies/MoviesPage').then((m) => ({ default: m.MoviesPage })));
 const SeriesPage = lazy(() => import('@/features/series/SeriesPage').then((m) => ({ default: m.SeriesPage })));
 const EpgPage = lazy(() => import('@/features/epg/EpgPage').then((m) => ({ default: m.EpgPage })));
@@ -46,6 +47,7 @@ export function App() {
           <Route element={<AppShell />}>
             <Route index element={<HomePage />} />
             <Route path="live" element={<LiveTvPage />} />
+            <Route path="multiview" element={<MultiViewPage />} />
             <Route path="movies" element={<MoviesPage />} />
             <Route path="series" element={<SeriesPage />} />
             <Route path="epg" element={<EpgPage />} />

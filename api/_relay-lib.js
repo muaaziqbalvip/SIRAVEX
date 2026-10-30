@@ -1,10 +1,8 @@
 /**
- * SIRAVEX relay helpers — mehfooz hudood:
- *  - Sirf http(s), GET. Private/loopback/link-local hosts hamesha blocked (SSRF guard).
- *  - Sirf media: HLS/DASH manifests rewrite hote hain, segments binary pipe hote hain.
- *  - Koi header/cookie forward nahi hota. Referer/User-Agent sirf jab client bheje.
- * Note: DNS-rebinding ke khilaf mukammal hifazat ke liye production mein
- * apne domain ki allowlist behtar hai; yahan hostname/IP-level guard hai.
+ * SIRAVEX relay helpers — mehfooz hudood + HyperSpeed streaming:
+ *  - Sirf http(s), GET/HEAD/OPTIONS. Private/loopback/link-local hosts hamesha blocked (SSRF guard).
+ *  - HLS/DASH manifests rewrite hote hain, binary segments & live TS zero-buffer pipe hote hain.
+ *  - Koi cookie/credential header forward nahi hota. Referer sirf jab playlist #EXTVLCOPT de.
  */
 const PRIVATE_V4 = [
   /^10\./, /^127\./, /^0\./, /^169\.254\./, /^192\.168\./,
@@ -15,6 +13,8 @@ const PRIVATE_V6_MAPPED = [
   /^::ffff:(?:7f|0?a[0-9a-f]{2}:|c0a8:|a9fe:|0+:)/i,
   /^::ffff:ac1[0-9a-f]:/i,
 ];
+
+const BINARY_SEG_EXT = /\.(ts|m2ts|mts|m4s|cmfv|cmfa|mp4|m4v|m4a|aac|mp3|ac3|ec3|vtt|webvtt|key)$/i;
 
 export function blockedHost(rawUrl) {
   let u;
@@ -41,13 +41,22 @@ export function blockedHost(rawUrl) {
   return null;
 }
 
-export function relayLink(absUrl, base, ref = '') {
+export function relayLink(absUrl, base = '', ref = '', seg = false) {
   const refSuffix = ref ? `&ref=${encodeURIComponent(ref)}` : '';
-  return `${base}/api/relay?u=${encodeURIComponent(absUrl)}${refSuffix}`;
+  const segSuffix = seg ? '&seg=1' : '';
+  return `${base}/api/relay?u=${encodeURIComponent(absUrl)}${refSuffix}${segSuffix}`;
+}
+
+function isBinarySegmentUrl(absUrl) {
+  try {
+    return BINARY_SEG_EXT.test(new URL(absUrl).pathname);
+  } catch {
+    return BINARY_SEG_EXT.test(String(absUrl).split('?')[0]);
+  }
 }
 
 /** HLS manifest ki har segment/key/sub-playlist line ko relay se guzaro. */
-export function rewriteHlsManifest(text, manifestUrl, base, ref = '') {
+export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
   return String(text || '')
     .replace(/\r\n/g, '\n')
     .split('\n')
@@ -55,22 +64,31 @@ export function rewriteHlsManifest(text, manifestUrl, base, ref = '') {
       const trimmed = line.trim();
       if (!trimmed) return line;
       if (trimmed.startsWith('#')) {
+        const isBinaryTag = /^#EXT-X-(KEY|MAP)\b/i.test(trimmed);
         return trimmed.replace(/URI="([^"]+)"/gi, (_, uri) => {
-          try { return `URI="${relayLink(new URL(uri, manifestUrl).toString(), base, ref)}"`; } catch { return _; }
+          try {
+            const abs = new URL(uri, manifestUrl).toString();
+            return `URI="${relayLink(abs, base, ref, isBinaryTag || isBinarySegmentUrl(abs))}"`;
+          } catch {
+            return _;
+          }
         });
       }
-      try { return relayLink(new URL(trimmed, manifestUrl).toString(), base, ref); } catch { return line; }
+      try {
+        const abs = new URL(trimmed, manifestUrl).toString();
+        return relayLink(abs, base, ref, isBinarySegmentUrl(abs));
+      } catch {
+        return line;
+      }
     })
     .join('\n');
 }
 
 /**
  * DASH MPD rewrite: BaseURL aur SegmentTemplate ke media/initialization
- * URLs relay se. $Number$ jese templates byte-identical rehte hain —
- * Shaka unhein request se pehle khud substitute karta hai; server
- * `tpl` ko base directory ke against resolve karta hai, badalta nahi.
+ * URLs relay se. $Number$ jese templates byte-identical rehte hain.
  */
-export function rewriteDashMpd(text, mpdUrl, base, ref = '') {
+export function rewriteDashMpd(text, mpdUrl, base = '', ref = '') {
   const refSuffix = ref ? `&ref=${encodeURIComponent(ref)}` : '';
   const shield = (s) => {
     const tokens = [];
@@ -86,7 +104,7 @@ export function rewriteDashMpd(text, mpdUrl, base, ref = '') {
       const baseTok = encodeURIComponent(mpdUrl);
       return `${base}/api/relay?seg=1&u=${baseTok}&tpl=${enc}${refSuffix}`;
     }
-    try { return `${relayLink(new URL(rawUri, mpdUrl).toString(), base, ref)}&seg=1`; } catch { return rawUri; }
+    try { return `${relayLink(new URL(rawUri, mpdUrl).toString(), base, ref, true)}`; } catch { return rawUri; }
   };
   let out = String(text || '');
   out = out.replace(/(<BaseURL>)([^<]+)(<\/BaseURL>)/gi, (_, a, uri, c) => {

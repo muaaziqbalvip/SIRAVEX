@@ -38,13 +38,7 @@ export interface MzAdSlotProps {
 }
 
 /**
- * Mizanora Ad Slot — Direct React Renderer + Signed Impression/Click Tracking.
- * - Fetches live Mizanora campaigns via `/api/ads/serve` (no hidden-DOM `embed.js` race).
- * - Resolves relative `/product/...` links to `https://mizanora.vercel.app`.
- * - Tracks viewport impressions via `IntersectionObserver` on a visible element.
- * - Smoothly falls back to Mizanora's emerald-and-gold `HOUSE_PROMOS` shop cards when
- *   no live campaign is active or when offline.
- * - Immediately hides when disabled in Settings or snoozed for 24h.
+ * Mizanora Ad Slot — Zero-Collision Mobile-First Card + Signed Impression/Click Tracking.
  */
 export function MzAdSlot({
   slot = 'auto',
@@ -83,21 +77,18 @@ export function MzAdSlot({
     return () => { alive = false; };
   }, [showAds, snoozed, slot, placement]);
 
-  // Rotate live Mizanora ads when multiple campaigns are returned
   useEffect(() => {
     if (!showAds || snoozed || ads.length <= 1) return;
     const iv = window.setInterval(() => setAdIdx((i) => (i + 1) % ads.length), Math.max(5_000, rotateMs));
     return () => window.clearInterval(iv);
   }, [showAds, snoozed, ads.length, rotateMs]);
 
-  // Rotate Mizanora shop house-promos when no live API campaign is active
   useEffect(() => {
     if (!showAds || snoozed || ads.length > 0) return;
     const iv = window.setInterval(() => setPromoIdx((i) => (i + 1) % HOUSE_PROMOS.length), 6_000);
     return () => window.clearInterval(iv);
   }, [showAds, snoozed, ads.length]);
 
-  // Observe real viewport entry for Mizanora impression tracking
   useEffect(() => {
     const el = hostRef.current;
     if (!el || !showAds || snoozed) return;
@@ -150,32 +141,45 @@ export function MzAdSlot({
     const customBg = safeBgStyle(activeAd.bg);
 
     return (
-      <div ref={hostRef} className={`relative ${className}`} data-mz-ads={slot}>
+      <div ref={hostRef} className={`w-full min-w-0 max-w-full ${className}`} data-mz-ads={slot}>
         <div
-          className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card"
+          className="overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card"
           style={customBg}
         >
-          <span className="absolute left-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
-            {isProduct ? <Tag size={10} aria-hidden /> : <Megaphone size={10} aria-hidden />}
-            Ad · Mizanora
-          </span>
-          <button
-            type="button"
-            aria-label="Hide Mizanora ads for today"
-            onClick={snoozeFor24h}
-            className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-          >
-            <X size={14} aria-hidden />
-          </button>
+          {/* Non-overlapping top meta bar */}
+          <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-black/20 px-3 py-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
+              {isProduct ? <Tag size={10} aria-hidden /> : <Megaphone size={10} aria-hidden />}
+              Ad · Mizanora
+            </span>
+            <div className="flex items-center gap-2">
+              {ads.length > 1 && (
+                <span className="flex gap-1" aria-hidden>
+                  {ads.map((a, i) => (
+                    <span key={a.id} className={`h-1.5 rounded-full transition-all ${i === (adIdx % ads.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
+                  ))}
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label="Hide Mizanora ads for today"
+                onClick={snoozeFor24h}
+                className="grid h-6 w-6 place-items-center rounded-full bg-black/40 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+              >
+                <X size={13} aria-hidden />
+              </button>
+            </div>
+          </div>
+
           <a
             href={href}
             target="_blank"
             rel="noopener noreferrer sponsored"
             onClick={() => trackMzEvent('click', activeAd)}
-            className={`flex ${compact ? 'min-h-[84px]' : 'min-h-[104px]'} items-stretch gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx`}
+            className="flex min-w-0 items-center gap-3 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx sm:gap-4 sm:p-3.5"
           >
             {videoUrl && !compact ? (
-              <span className="relative hidden w-36 shrink-0 bg-black min-[420px]:block sm:w-44">
+              <span className="relative h-20 w-24 shrink-0 overflow-hidden rounded-xl bg-black sm:h-24 sm:w-36">
                 <video
                   src={videoUrl}
                   poster={videoPoster ?? undefined}
@@ -184,43 +188,39 @@ export function MzAdSlot({
                   autoPlay
                   playsInline
                   preload="metadata"
-                  className="absolute inset-0 h-full w-full object-cover"
+                  className="h-full w-full object-cover"
                 />
               </span>
-            ) : imgUrl ? (
-              <span className="relative hidden w-32 shrink-0 min-[420px]:block sm:w-40">
-                <SafeImage src={imgUrl} title={title} className="absolute inset-0 h-full w-full" />
+            ) : imgUrl && !compact ? (
+              <span className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-black/30 sm:h-24 sm:w-32">
+                <SafeImage src={imgUrl} title={title} className="h-full w-full" />
               </span>
             ) : null}
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-3.5 pl-4 pt-7 sm:pt-3.5">
-              <span className="flex flex-wrap items-center gap-2">
-                {badge && (
-                  <span className="inline-flex w-fit rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">
-                    {badge}
-                  </span>
-                )}
-                {price && (
-                  <span className="inline-flex items-baseline gap-1.5 text-xs font-extrabold text-[#F2C766]">
-                    <span>{price}</span>
-                    {compareAt && <span className="text-[11px] font-normal text-white/50 line-through">{compareAt}</span>}
-                  </span>
-                )}
-              </span>
-              <span className="truncate text-base font-extrabold text-white sm:text-lg">{title}</span>
-              {!compact && sub && <span className="truncate text-xs text-emerald-100/85 sm:text-sm">{sub}</span>}
-              <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
+
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+              {(badge || price) && (
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {badge && (
+                    <span className="inline-flex rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">
+                      {badge}
+                    </span>
+                  )}
+                  {price && (
+                    <span className="inline-flex items-baseline gap-1.5 text-xs font-extrabold text-[#F2C766]">
+                      <span>{price}</span>
+                      {compareAt && <span className="text-[11px] font-normal text-white/50 line-through">{compareAt}</span>}
+                    </span>
+                  )}
+                </span>
+              )}
+              <span className="line-clamp-1 text-sm font-extrabold text-white sm:text-base">{title}</span>
+              {!compact && sub && <span className="line-clamp-1 text-xs text-emerald-100/85">{sub}</span>}
+              <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-bold text-white sm:text-xs">
                 {cta}
-                <ExternalLink size={12} aria-hidden />
+                <ExternalLink size={11} aria-hidden />
               </span>
             </span>
           </a>
-          {ads.length > 1 && (
-            <span className="absolute bottom-2 right-3 flex gap-1" aria-hidden>
-              {ads.map((a, i) => (
-                <span key={a.id} className={`h-1.5 rounded-full transition-all ${i === (adIdx % ads.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
-              ))}
-            </span>
-          )}
         </div>
       </div>
     );
@@ -229,55 +229,59 @@ export function MzAdSlot({
   // Fallback: Mizanora shop house-promos
   const promo = HOUSE_PROMOS[promoIdx % HOUSE_PROMOS.length];
   return (
-    <div ref={hostRef} className={`relative ${className}`} data-mz-ads={slot}>
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card">
-        <span className="absolute left-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
-          <Megaphone size={10} aria-hidden />Ad · Mizanora
-        </span>
-        <button
-          type="button"
-          aria-label="Hide Mizanora ads for today"
-          onClick={snoozeFor24h}
-          className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
-        >
-          <X size={14} aria-hidden />
-        </button>
+    <div ref={hostRef} className={`w-full min-w-0 max-w-full ${className}`} data-mz-ads={slot}>
+      <div className="overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card">
+        <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-black/20 px-3 py-1.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
+            <Megaphone size={10} aria-hidden />Ad · Mizanora
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="flex gap-1" aria-hidden>
+              {HOUSE_PROMOS.map((p, i) => (
+                <span key={p.id} className={`h-1.5 rounded-full transition-all ${i === (promoIdx % HOUSE_PROMOS.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
+              ))}
+            </span>
+            <button
+              type="button"
+              aria-label="Hide Mizanora ads for today"
+              onClick={snoozeFor24h}
+              className="grid h-6 w-6 place-items-center rounded-full bg-black/40 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+            >
+              <X size={13} aria-hidden />
+            </button>
+          </div>
+        </div>
+
         <a
           href={promo.href}
           target="_blank"
           rel="noopener noreferrer"
-          className={`flex ${compact ? 'min-h-[84px]' : 'min-h-[104px]'} items-stretch gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx`}
+          className="flex min-w-0 items-center gap-3 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx sm:gap-4 sm:p-3.5"
         >
           {promo.img && !compact && (
-            <span className="relative hidden w-32 shrink-0 min-[420px]:block sm:w-40">
-              <SafeImage src={promo.img} title={promo.title} className="absolute inset-0 h-full w-full" />
+            <span className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-black/30 sm:h-24 sm:w-32">
+              <SafeImage src={promo.img} title={promo.title} className="h-full w-full" />
             </span>
           )}
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-3.5 pl-4 pt-7 sm:pt-3.5">
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-1">
             <span className="inline-flex w-fit rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">
               {promo.badge}
             </span>
-            <span className="truncate text-base font-extrabold text-white sm:text-lg">{promo.title}</span>
-            {!compact && <span className="truncate text-xs text-emerald-100/85 sm:text-sm">{promo.sub}</span>}
-            <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
-              Shop on Mizanora<ExternalLink size={12} aria-hidden />
+            <span className="line-clamp-1 text-sm font-extrabold text-white sm:text-base">{promo.title}</span>
+            {!compact && <span className="line-clamp-1 text-xs text-emerald-100/85">{promo.sub}</span>}
+            <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-bold text-white sm:text-xs">
+              Shop on Mizanora<ExternalLink size={11} aria-hidden />
             </span>
           </span>
         </a>
-        <span className="absolute bottom-2 right-3 flex gap-1" aria-hidden>
-          {HOUSE_PROMOS.map((p, i) => (
-            <span key={p.id} className={`h-1.5 rounded-full transition-all ${i === (promoIdx % HOUSE_PROMOS.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
-          ))}
-        </span>
       </div>
     </div>
   );
 }
 
 /**
- * Skippable Video Pre-Roll Gate — checks `/api/ads/serve?slot=video` directly.
- * If no video campaign is active (or network fails), dismisses immediately with zero delay
- * so viewers never wait on an empty spinner.
+ * Fast Skippable Video Pre-Roll Gate — races `/api/ads/serve?slot=video` with a strict 900ms budget
+ * so viewers NEVER wait on slow ad checks when opening a VOD stream.
  */
 export function MzPreroll({ onDone }: { onDone: () => void }) {
   const { settings } = useStore();
@@ -301,15 +305,21 @@ export function MzPreroll({ onDone }: { onDone: () => void }) {
       return;
     }
     let cancelled = false;
-    const hardCap = window.setTimeout(finish, 20_000);
+    let matched = false;
+    const fastBail = window.setTimeout(() => {
+      if (!matched) finish();
+    }, 900);
+    const hardCap = window.setTimeout(finish, 18_000);
 
     void fetchMzSlot('video', 1).then((res) => {
-      if (cancelled) return;
+      if (cancelled || doneRef.current) return;
       const candidate = res.ads.find((a) => a.type === 'video' && resolveMzMediaUrl(a.video?.url));
       if (!candidate) {
         finish();
         return;
       }
+      matched = true;
+      window.clearTimeout(fastBail);
       const skipSec = Math.min(8, Math.max(3, Number(candidate.video?.skipAfter ?? 5) || 5));
       setSkipIn(skipSec);
       setAd(candidate);
@@ -318,6 +328,7 @@ export function MzPreroll({ onDone }: { onDone: () => void }) {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fastBail);
       window.clearTimeout(hardCap);
     };
   }, [settings.showAds, finish]);
@@ -330,11 +341,11 @@ export function MzPreroll({ onDone }: { onDone: () => void }) {
 
   if (!ad) {
     return (
-      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black shadow-card" role="region" aria-label="Advertisement">
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black shadow-card" role="region" aria-label="Starting stream">
         <div className="absolute inset-0 grid place-items-center">
           <span className="grid place-items-center gap-2">
-            <span className="h-10 w-10 animate-spin rounded-full border-[3px] border-white/25 border-t-emerald-400" />
-            <span className="text-xs text-white/70">Connecting stream…</span>
+            <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/25 border-t-cyan-400" />
+            <span className="text-xs text-white/70">Starting stream…</span>
           </span>
         </div>
       </div>
@@ -381,18 +392,18 @@ export function MzPreroll({ onDone }: { onDone: () => void }) {
             target="_blank"
             rel="noopener noreferrer sponsored"
             onClick={() => trackMzEvent('click', ad)}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-emerald-500 px-3.5 text-xs font-extrabold text-white shadow hover:bg-emerald-400"
+            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-full bg-emerald-500 px-3 text-xs font-extrabold text-white shadow hover:bg-emerald-400"
           >
-            {ad.cta || 'Shop on Mizanora'}
+            {ad.cta || 'Shop'}
             <ExternalLink size={12} aria-hidden />
           </a>
           <button
             type="button"
             disabled={skipIn > 0}
             onClick={finish}
-            className="min-h-[40px] rounded-full bg-white px-4 text-xs font-extrabold text-black shadow disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+            className="min-h-[38px] rounded-full bg-white px-3.5 text-xs font-extrabold text-black shadow disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
           >
-            {skipIn > 0 ? `Skip in ${skipIn}s` : 'Skip Ad →'}
+            {skipIn > 0 ? `Skip ${skipIn}s` : 'Skip Ad →'}
           </button>
         </div>
       </div>

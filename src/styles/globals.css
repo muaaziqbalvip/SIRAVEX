@@ -3,18 +3,26 @@
 @tailwind utilities;
 
 :root { --svx-accent: #0ea5e9; }
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-html, body { overflow-x: clip; max-width: 100%; }
-#root { min-width: 0; }
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+html, body { overflow-x: clip; max-width: 100vw; width: 100%; }
+#root { min-width: 0; max-width: 100%; overflow-x: clip; }
 img, video, svg { max-width: 100%; }
 .break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
-body { margin: 0; background: #050816; color: #e6edf7; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+body {
+  margin: 0;
+  background: #050816;
+  color: #e6edf7;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+body.svx-lock-scroll { overflow: hidden !important; overscroll-behavior: none; }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 ::selection { background: rgba(14,165,233,.4); }
 :focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
-video::cue { background: rgba(0,0,0,.7); }
+video::cue { background: rgba(0,0,0,.75); }
 html:not(.dark) body { background: #eef2f8; color: #12213c; }
 html:not(.dark) .bg-ink { background-color: #eef2f8 !important; }
 html:not(.dark) .bg-panel { background-color: #ffffff !important; }
@@ -24,25 +32,44 @@ html:not(.dark) .text-muted { color: #4a607e !important; }
 html:not(.dark) .border-border { border-color: #c9d6ea !important; }
 [data-density="compact"] main { font-size: 0.92rem; }
 input[type="range"] { cursor: pointer; }
-/* Horizontal OTT rows: scrollable, no visible scrollbar, no page-level overflow */
-.scroll-row { scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+
+/* Horizontal OTT rows: guaranteed flex + scroll, zero page-level overflow or card stacking */
+.scroll-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.625rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  min-width: 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
 .scroll-row::-webkit-scrollbar { display: none; }
-.chips-row { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.chips-row { scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .chips-row::-webkit-scrollbar { display: none; }
-/* Stable video: never taller than the viewport fold on small screens */
+
+/* Safe-area helpers for notched phones & fullscreen player */
+.svx-safe-top { padding-top: max(0.65rem, env(safe-area-inset-top)); }
+.svx-safe-bottom { padding-bottom: max(0.65rem, env(safe-area-inset-bottom)); }
+.svx-safe-x {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
 video { max-height: 100%; }
 @keyframes svx-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-main > div { animation: svx-fade-up .28s ease both; }
+main > div { animation: svx-fade-up .24s ease both; min-width: 0; max-width: 100%; }
 body.reduce-motion main > div { animation: none; }
+
 /* Thin premium scrollbars (sidebar / panels) */
 .nice-scroll { scrollbar-width: thin; scrollbar-color: #1e3a5f transparent; }
 .nice-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .nice-scroll::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
 .nice-scroll::-webkit-scrollbar-track { background: transparent; }
 
-/* v3.3 premium motion: har page halki si fade-up transition ke sath khulta hai */
-.svx-page { animation: svx-fade-up .32s cubic-bezier(.22,.8,.32,1) both; }
-::selection { background: rgba(14,165,233,.4); }
+.svx-page { animation: svx-fade-up .26s cubic-bezier(.22,.8,.32,1) both; min-width: 0; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .svx-page { animation: none; }
 }

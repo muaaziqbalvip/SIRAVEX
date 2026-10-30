@@ -15,6 +15,7 @@ import { fetchAnnouncement, type Announcement } from '@/services/firebase/tracki
 import { isParentalActive } from '@/lib/parental';
 import { consumeVersionChange } from '@/lib/update';
 import { APP_VERSION, APP_CODENAME } from '@/lib/version';
+import { warmPlaybackEngines } from '@/playback/engine';
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home },
@@ -60,6 +61,7 @@ export function AppShell() {
   const [swUpdate, setSwUpdate] = useState(false);
 
   useEffect(() => {
+    warmPlaybackEngines();
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
@@ -75,7 +77,7 @@ export function AppShell() {
       toast({
         tone: 'success',
         title: `SIRAVEX v${APP_VERSION} (${APP_CODENAME}) active`,
-        body: 'Multi-View 4-Screen, Firebase Cloud Playlist Vault, Picture EQ aur Parental Lock ab live hain.',
+        body: 'Turbo Channel Zapping, Full-View Mobile Player Dock aur Clean Home Layout ab live hain.',
       });
     }
     void fetchAnnouncement().then((a) => {
@@ -160,20 +162,20 @@ export function AppShell() {
             >
               <label className="sr-only" htmlFor="global-search">Search channels, movies, series</label>
               <div className="relative min-w-0 flex-1 sm:max-w-md">
-                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={18} aria-hidden />
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={17} aria-hidden />
                 <input
                   id="global-search"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search channels, movies, series…"
-                  className="min-h-[42px] w-full rounded-full border border-border bg-panel py-2 pl-10 pr-16 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Search channels, movies…"
+                  className="min-h-[40px] w-full rounded-full border border-border bg-panel py-1.5 pl-9 pr-3 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:min-h-[42px] sm:pl-10 sm:pr-14"
                 />
                 <button
                   type="button"
                   onClick={() => setPaletteOpen(true)}
                   title="Open Quick Command Palette (Ctrl+K)"
                   aria-label="Open Quick Command Palette"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-border bg-card px-2 py-0.5 font-mono text-[10px] font-bold text-cyanx hover:border-sky-400"
+                  className="absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full border border-border bg-card px-2 py-0.5 font-mono text-[10px] font-bold text-cyanx hover:border-sky-400 sm:inline-flex"
                 >
                   ⌘K
                 </button>
@@ -273,7 +275,7 @@ export function AppShell() {
           )}
         </header>
 
-        <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}>
+        <main id="main" className="mx-auto w-full min-w-0 max-w-[1500px] px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3.5 sm:px-5 sm:pt-5 lg:pb-8" tabIndex={-1}>
           <div key={location.pathname} className="svx-page"><Outlet /></div>
         </main>
       </div>

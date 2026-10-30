@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Play } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
-import { nowAndNext } from '@/services/epg/xmltv';
+import { MzAdSlot } from '@/components/ads/MzAdSlot';
+import { matchesChannelEpg, nowAndNextForItem } from '@/services/epg/xmltv';
 
 export function EpgPage() {
   const { ready, items, playlists, programmes, importEpg, refreshXtreamEpg, toast } = useStore();
@@ -21,8 +23,16 @@ export function EpgPage() {
   const live = useMemo(() => items.filter((i) => i.kind === 'live' && enabled.has(i.playlistId)), [items, enabled]);
   const [selectedId, setSelectedId] = useState<string>('');
   const selected = live.find((i) => i.id === selectedId) ?? live[0];
-  const schedule = useMemo(() => selected?.tvgId ? programmes.filter((p) => p.channelId === selected.tvgId && p.title.toLowerCase().includes(q.toLowerCase())).sort((a, b) => a.start - b.start).slice(0, 60) : [], [programmes, selected, q]);
-  const nn = selected?.tvgId ? nowAndNext(programmes, selected.tvgId) : {};
+  const schedule = useMemo(
+    () => selected
+      ? programmes
+          .filter((p) => matchesChannelEpg(p.channelId, selected) && p.title.toLowerCase().includes(q.toLowerCase()))
+          .sort((a, b) => a.start - b.start)
+          .slice(0, 60)
+      : [],
+    [programmes, selected, q],
+  );
+  const nn = selected ? nowAndNextForItem(programmes, selected) : {};
   if (!ready) return <Skeleton className="h-64" />;
   return (
     <div><div className="mb-4 flex flex-wrap items-center gap-2"><h1 className="mr-auto text-2xl font-extrabold">Programme Guide (EPG)</h1>
@@ -44,8 +54,9 @@ export function EpgPage() {
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <Card className="max-h-[70vh] overflow-y-auto"><h2 className="mb-2 font-bold">Channels</h2><div className="grid gap-1">{live.map((c) => <button key={c.id} type="button" onClick={() => setSelectedId(c.id)} aria-pressed={selected?.id === c.id} className={`min-h-[44px] rounded-lg px-3 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${selected?.id === c.id ? 'bg-sky-500 text-white' : 'hover:bg-panel'}`}>{c.title}<span className="block text-xs opacity-75">{c.tvgId || 'no tvg-id — cannot match EPG'}</span></button>)}</div></Card>
           <div className="min-w-0">
-            {selected && <Card className="mb-3"><h2 className="font-bold">{selected.title}</h2>{nn.current ? <p className="mt-1 text-sm"><span className="text-cyanx font-semibold">Now:</span> {nn.current.title} ({new Date(nn.current.start).toLocaleTimeString()}–{new Date(nn.current.end).toLocaleTimeString()})<span className="mt-2 block h-2 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-sky-400" style={{ width: `${Math.min(100, ((Date.now() - nn.current.start) / (nn.current.end - nn.current.start)) * 100)}%` }} /></span></p> : <p className="mt-1 text-sm text-muted">No current programme in the imported data for this channel right now.</p>}{nn.next && <p className="mt-1 text-sm text-muted">Next: {nn.next.title} at {new Date(nn.next.start).toLocaleTimeString()}</p>}
+            {selected && <Card className="mb-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-bold">{selected.title}</h2><Link to={`/player/${encodeURIComponent(selected.id)}`}><Button className="min-h-[38px] px-3.5 text-xs"><Play size={15} aria-hidden />Watch Live</Button></Link></div>{nn.current ? <p className="mt-1 text-sm"><span className="text-cyanx font-semibold">Now:</span> {nn.current.title} ({new Date(nn.current.start).toLocaleTimeString()}–{new Date(nn.current.end).toLocaleTimeString()})<span className="mt-2 block h-2 overflow-hidden rounded bg-slate-800"><span className="block h-full bg-sky-400" style={{ width: `${Math.min(100, ((Date.now() - nn.current.start) / Math.max(1, nn.current.end - nn.current.start)) * 100)}%` }} /></span></p> : <p className="mt-1 text-sm text-muted">No current programme in the imported data for this channel right now.</p>}{nn.next && <p className="mt-1 text-sm text-muted">Next: {nn.next.title} at {new Date(nn.next.start).toLocaleTimeString()}</p>}
             <label className="sr-only" htmlFor="epg-q">Search programmes</label><input id="epg-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search programme titles…" className="mt-3 min-h-[44px] w-full rounded-xl border border-border bg-ink px-3 text-sm focus:border-sky-400 focus:outline-none" /></Card>}
+            <MzAdSlot slot="banner" placement="epg" compact className="mb-3" />
             <div className="relative overflow-x-auto rounded-2xl border border-border" role="region" aria-label="Schedule timeline">
               <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-red-400/70" style={{ left: '8px' }} aria-hidden />
               {schedule.length === 0 ? <p className="p-5 text-sm text-muted">No programmes match this channel/search in the imported window. <Link to="/playlists" className="text-cyanx hover:underline">Check your EPG import</Link>.</p> : <ol className="min-w-[520px] divide-y divide-border">{schedule.map((p) => <li key={p.id} className={`px-4 py-3 text-sm ${Date.now() >= p.start && Date.now() < p.end ? 'bg-sky-950/50' : 'bg-card'}`}><span className="font-semibold">{p.title}</span><span className="block text-xs text-muted">{new Date(p.start).toLocaleString()} – {new Date(p.end).toLocaleTimeString()}{p.description ? ` · ${p.description}` : ''}</span></li>)}</ol>}

@@ -24,7 +24,9 @@ export function HomePage() {
   const nowByChannel = useMemo(() => {
     const map = new Map<string, string>();
     const now = Date.now();
-    for (const p of programmes) if (now >= p.start && now < p.end) map.set(p.channelId, p.title);
+    for (const p of programmes) {
+      if (now >= p.start && now < p.end && p.channelId) map.set(p.channelId.trim().toLowerCase(), p.title);
+    }
     return map;
   }, [programmes]);
 
@@ -94,7 +96,7 @@ export function HomePage() {
 
       {continueWatching.length > 0 && <section className="min-w-0"><RowHeader title="Continue Watching" to="/history" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{continueWatching.map(({ p, item }) => <MediaCard key={item!.id} item={item!} progressPct={p.duration ? (p.position / p.duration) * 100 : 0} />)}</div></section>}
 
-      {live.length > 0 && <section className="min-w-0"><RowHeader title="Live TV" to="/live" /><div className="scroll-row -mx-3 flex snap-x gap-2.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">{live.slice(0, 20).map((i) => <ChannelCard key={i.id} item={i} nowTitle={i.tvgId ? nowByChannel.get(i.tvgId) : undefined} />)}</div></section>}
+      {live.length > 0 && <section className="min-w-0"><RowHeader title="Live TV" to="/live" /><div className="scroll-row -mx-3 flex snap-x gap-2.5 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">{live.slice(0, 20).map((i) => <ChannelCard key={i.id} item={i} nowTitle={(i.tvgId ? nowByChannel.get(i.tvgId.trim().toLowerCase()) : undefined) ?? nowByChannel.get(i.id.trim().toLowerCase())} />)}</div></section>}
 
       {movies.length > 0 && <section className="min-w-0"><RowHeader title="Movies" to="/movies" /><div className="grid w-full min-w-0 grid-cols-3 gap-2.5 sm:grid-cols-4 lg:grid-cols-6">{movies.slice(0, 12).map((i) => <MediaCard key={i.id} item={i} />)}</div></section>}
 

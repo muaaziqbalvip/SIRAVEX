@@ -59,7 +59,13 @@ export function AppShell() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', bip); window.removeEventListener('siravex-sw-update', upd); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { setMoreOpen(false); }, [navigate]);
+  useEffect(() => { setMoreOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (location.pathname === '/search') {
+      const sp = new URLSearchParams(location.search);
+      setQ(sp.get('q') ?? '');
+    }
+  }, [location.pathname, location.search]);
   return (
     <div className="min-h-screen bg-ink text-silver">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:rounded-lg focus:bg-sky-500 focus:px-3 focus:py-2">Skip to content</a>

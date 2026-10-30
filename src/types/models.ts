@@ -44,6 +44,11 @@ export interface MediaItem {
   seriesTitle?: string;
   season?: number;
   episode?: number;
+  /** Optional format/DRM/referrer hints supplied by authorized M3U (#KODIPROP / #EXTVLCOPT). */
+  forcedFormat?: string;
+  drmClearKeys?: Record<string, string>;
+  drmLicenseUrl?: string;
+  referrer?: string;
 }
 
 export interface EpgProgramme {
@@ -82,7 +87,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark', accent: 'sky', density: 'comfortable', reducedMotion: false,
-  autoplay: false, resumePlayback: true, defaultVolume: 0.8, playbackSpeed: 1,
+  autoplay: true, resumePlayback: true, defaultVolume: 0.8, playbackSpeed: 1,
   audioLanguage: '', subtitleLanguage: '', subtitleSize: 'medium', subtitleColor: '#ffffff',
   defaultHome: '/', librarySort: 'title', liveLayout: 'list', saveRecentSearches: true, showAds: true,
 };

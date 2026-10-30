@@ -1,13 +1,36 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Mount /api/relay in local Vite dev & preview servers so stream failover works identically to Vercel. */
+function siravexRelayPlugin(): Plugin {
+  const attach = (middlewares: { use: (route: string, fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void }) => {
+    middlewares.use('/api/relay', (req, res, next) => {
+      if (!req.url) return next();
+      const origUrl = req.url.startsWith('/api/relay') ? req.url : `/api/relay${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+      req.url = origUrl;
+      // @ts-expect-error plain JS serverless module
+      void import('./api/relay.js').then((m) => m.default(req, res)).catch(() => {
+        if (!res.headersSent) { res.statusCode = 502; res.end('relay error'); }
+      });
+    });
+  };
+  return {
+    name: 'siravex-local-relay',
+    configureServer(server) { attach(server.middlewares); },
+    configurePreviewServer(server) { attach(server.middlewares); },
+  };
+}
 
 export default defineConfig({
   plugins: [
+    siravexRelayPlugin(),
     react(),
     VitePWA({
       registerType: 'prompt',
@@ -16,7 +39,7 @@ export default defineConfig({
         name: 'SIRAVEX', short_name: 'SIRAVEX',
         description: 'Premium IPTV & Universal Media Player — play your own authorized sources.',
         theme_color: '#050816', background_color: '#050816', display: 'standalone',
-        scope: '/', start_url: '/', orientation: 'portrait-primary', categories: ['entertainment','video'],
+        scope: '/', start_url: '/', orientation: 'portrait-primary', categories: ['entertainment', 'video'],
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -39,8 +62,6 @@ export default defineConfig({
     sourcemap: false, chunkSizeWarningLimit: 1200, reportCompressedSize: false,
     rollupOptions: {
       output: {
-        // Vendor splitting: browser in chunks ko alag cache karta hai — app
-        // update par sirf chhota app chunk dobara download hota hai, speed up.
         manualChunks(id: string) {
           if (id.includes('node_modules/hls.js')) return 'vendor-hls';
           if (id.includes('node_modules/shaka-player')) return 'vendor-shaka';

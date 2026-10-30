@@ -147,19 +147,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const importUrl = useCallback(async (name: string, url: string): Promise<ImportPreview> => {
     const clean = sanitizeUrl(url);
     if (!clean) throw new Error('Enter a valid http(s) playlist URL.');
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
-    let text: string;
-    try {
-      const res = await fetch(clean, { signal: ctrl.signal });
-      if (!res.ok) throw new Error(`Server returned HTTP ${res.status}.`);
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > 15 * 1024 * 1024) throw new Error('Playlist response exceeds the 15 MB safety limit.');
-      text = new TextDecoder().decode(buf);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') throw new Error('Request timed out after 20 seconds.');
-      throw new Error('Could not fetch that URL from the browser. This is commonly a CORS or provider restriction — changing browser headers cannot bypass CORS. Download the playlist file from your provider and use local file import instead.');
-    } finally { clearTimeout(timer); }
+    const isMixedHttp = typeof window !== 'undefined' && window.location?.protocol === 'https:' && /^http:\/\//i.test(clean);
+    const relayUrl = `/api/relay?u=${encodeURIComponent(clean)}&raw=1`;
+    const attempts = isMixedHttp ? [relayUrl] : [clean, relayUrl];
+    let text: string | null = null;
+    let lastErr: unknown = null;
+    for (const candidate of attempts) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 22000);
+      try {
+        const res = await fetch(candidate, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(`Server returned HTTP ${res.status}.`);
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength > 15 * 1024 * 1024) throw new Error('Playlist response exceeds the 15 MB safety limit.');
+        text = new TextDecoder().decode(buf);
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (e instanceof Error && /exceeds the 15 MB|HTTP (401|403|404)/.test(e.message)) break;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    if (text === null) {
+      if (lastErr instanceof DOMException && lastErr.name === 'AbortError') throw new Error('Request timed out after 22 seconds.');
+      if (lastErr instanceof Error && /exceeds the 15 MB|HTTP \d+/.test(lastErr.message)) throw lastErr;
+      throw new Error('Could not fetch that URL even via relay (commonly provider IP/UA blocking). Download the playlist file from your provider and use local file import instead.');
+    }
     const parsed = parseM3U(text);
     return { name: name || 'Remote playlist', items: parsed.items, warnings: parsed.report.warnings, errors: parsed.report.errors, total: parsed.report.total };
   }, []);

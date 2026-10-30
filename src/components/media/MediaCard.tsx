@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Play, Star, Tv } from 'lucide-react';
 import type { MediaItem } from '@/types/models';
@@ -12,6 +12,7 @@ function initials(title: string): string {
 /** Broken provider images used to leave a blank box (looked like a glitch). Now: branded fallback. */
 export function SafeImage({ src, title, className, contain = false }: { src?: string; title: string; className?: string; contain?: boolean }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
   if (!src || failed) {
     return (
       <span className={`grid place-items-center bg-gradient-to-br from-sky-950 via-panel to-ink ${className ?? ''}`} aria-hidden>

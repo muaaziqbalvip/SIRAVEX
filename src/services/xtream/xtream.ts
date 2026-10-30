@@ -68,18 +68,29 @@ export function decodeB64(value: string | undefined): string {
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number, maxBytes: number): Promise<{ text: string; status: number }> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) throw new Error(`Response too large (${(buf.byteLength / 1048576).toFixed(1)} MB, limit ${(maxBytes / 1048576).toFixed(0)} MB).`);
-    return { text: new TextDecoder().decode(buf), status: res.status };
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') throw new Error('Request timed out. The provider may be slow or blocking browser requests.');
-    if (e instanceof Error && /Response too large/.test(e.message)) throw e;
-    throw new Error('Could not reach the provider from the browser (commonly CORS or provider browser-blocking). SIRAVEX cannot bypass provider restrictions — ask your provider for an M3U file and import it locally.');
-  } finally { clearTimeout(timer); }
+  const isMixedHttp = typeof window !== 'undefined' && window.location?.protocol === 'https:' && /^http:\/\//i.test(url);
+  const relayUrl = `/api/relay?u=${encodeURIComponent(url)}&raw=1`;
+  const attempts = isMixedHttp ? [relayUrl] : [url, relayUrl];
+  let lastErr: unknown = null;
+  for (const candidate of attempts) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(candidate, { signal: ctrl.signal });
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > maxBytes) throw new Error(`Response too large (${(buf.byteLength / 1048576).toFixed(1)} MB, limit ${(maxBytes / 1048576).toFixed(0)} MB).`);
+      return { text: new TextDecoder().decode(buf), status: res.status };
+    } catch (e) {
+      lastErr = e;
+      if (e instanceof Error && /Response too large/.test(e.message)) throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (lastErr instanceof DOMException && lastErr.name === 'AbortError') {
+    throw new Error('Request timed out. The provider may be slow or blocking requests.');
+  }
+  throw new Error('Could not reach the provider (direct or via relay). Check server address, or ask your provider for an M3U file and import it locally.');
 }
 async function fetchJson<T>(url: string, timeoutMs = 25000): Promise<T> {
   const { text, status } = await fetchWithTimeout(url, timeoutMs, 30 * 1024 * 1024);

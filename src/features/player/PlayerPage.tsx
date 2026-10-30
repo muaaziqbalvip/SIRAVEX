@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { CalendarClock, Heart, ListVideo, Play, Star } from 'lucide-react';
+import { CalendarClock, Heart, ListVideo, Star } from 'lucide-react';
 import { useStore } from '@/app/store';
 import { Button, Card, EmptyState, Skeleton } from '@/components/ui/ui';
 import { PlayerShell } from '@/playback/components/PlayerShell';
 import { MzAdSlot, MzPreroll, usePrerollGate } from '@/components/ads/MzAdSlot';
 import { MediaCard, SafeImage } from '@/components/media/MediaCard';
 import { cleanTitle } from '@/lib/display';
+import { matchesChannelEpg } from '@/services/epg/xmltv';
 
 export function PlayerPage() {
   const { id } = useParams();
@@ -18,9 +19,12 @@ export function PlayerPage() {
   const [sgBusy, setSgBusy] = useState(false);
   const item = items.find((i) => i.id === decodeURIComponent(id ?? ''));
   const todayShows = useMemo(() => {
-    if (!item || item.kind !== 'live' || !item.tvgId) return [] as typeof programmes;
+    if (!item || item.kind !== 'live') return [] as typeof programmes;
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    return programmes.filter((pr) => (pr.channelId === item.tvgId || pr.channelId === item.id) && pr.end > dayStart.getTime() && pr.start < dayStart.getTime() + 86400000).sort((a, b) => a.start - b.start).slice(0, 20);
+    return programmes
+      .filter((pr) => matchesChannelEpg(pr.channelId, item) && pr.end > dayStart.getTime() && pr.start < dayStart.getTime() + 86400000)
+      .sort((a, b) => a.start - b.start)
+      .slice(0, 20);
   }, [programmes, item]);
   if (!ready) return <Skeleton className="aspect-video w-full" />;
   if (!item) return <EmptyState title="Item not found" body="This item may have been removed with its playlist. Your library is unchanged otherwise." action={<Link to="/"><Button>Back to Home</Button></Link>} />;

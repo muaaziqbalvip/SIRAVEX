@@ -15,14 +15,21 @@ export function LiveTvPage() {
   const groups = useMemo(() => ['All', ...Array.from(new Set(live.map((i) => i.group))).sort()], [live]);
   const epgMap = useMemo(() => {
     const now = Date.now();
-    const cur = new Map<string, string>(); const nxt = new Map<string, string>();
+    const cur = new Map<string, string>();
+    const nxt = new Map<string, string>();
     const sorted = [...programmes].sort((a, b) => a.start - b.start);
     for (const p of sorted) {
-      if (now >= p.start && now < p.end) cur.set(p.channelId, p.title);
-      else if (p.start > now && !nxt.has(p.channelId)) nxt.set(p.channelId, p.title);
+      const k = p.channelId.trim().toLowerCase();
+      if (!k) continue;
+      if (now >= p.start && now < p.end) cur.set(k, p.title);
+      else if (p.start > now && !nxt.has(k)) nxt.set(k, p.title);
     }
     return { cur, nxt };
   }, [programmes]);
+  const getEpgCur = (i: typeof live[number]) =>
+    (i.tvgId ? epgMap.cur.get(i.tvgId.trim().toLowerCase()) : undefined) ?? epgMap.cur.get(i.id.trim().toLowerCase());
+  const getEpgNxt = (i: typeof live[number]) =>
+    (i.tvgId ? epgMap.nxt.get(i.tvgId.trim().toLowerCase()) : undefined) ?? epgMap.nxt.get(i.id.trim().toLowerCase());
   const filtered = useMemo(() => live.filter((i) => (group === 'All' || i.group === group) && i.title.toLowerCase().includes(dq.toLowerCase())).sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : a.group.localeCompare(b.group) || a.title.localeCompare(b.title)), [live, group, dq, sort]);
   const shown = filtered.slice(0, 400);
   if (!ready) return <div className="grid gap-2" aria-busy="true"><Skeleton className="h-12" /><Skeleton className="h-16" /><Skeleton className="h-16" /><Skeleton className="h-16" /></div>;
@@ -42,8 +49,8 @@ export function LiveTvPage() {
       </div>
       {filtered.length > shown.length && <p className="mb-2 text-xs text-muted">Showing first {shown.length} — search or pick a category to narrow down (bari playlists par UI smooth rehti hai).</p>}
       {filtered.length === 0 ? <EmptyState title="No channels match" body="Try a different search or category, or import a playlist that contains live channels." /> :
-        grid ? <div className="flex w-full min-w-0 flex-wrap gap-2.5">{shown.map((i) => <ChannelCard key={i.id} item={i} nowTitle={i.tvgId ? epgMap.cur.get(i.tvgId) : undefined} />)}</div>
-        : <div className="grid w-full min-w-0 gap-2">{shown.map((i) => <ChannelRow key={i.id} item={i} nowTitle={i.tvgId ? epgMap.cur.get(i.tvgId) : undefined} nextTitle={i.tvgId ? epgMap.nxt.get(i.tvgId) : undefined} />)}</div>}
+        grid ? <div className="flex w-full min-w-0 flex-wrap gap-2.5">{shown.map((i) => <ChannelCard key={i.id} item={i} nowTitle={getEpgCur(i)} />)}</div>
+        : <div className="grid w-full min-w-0 gap-2">{shown.map((i) => <ChannelRow key={i.id} item={i} nowTitle={getEpgCur(i)} nextTitle={getEpgNxt(i)} />)}</div>}
     </div>
   );
 }

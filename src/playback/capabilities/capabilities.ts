@@ -5,7 +5,8 @@ export interface Capabilities {
 }
 export function detectCapabilities(): Capabilities {
   const video = document.createElement('video');
-  const mse = typeof MediaSource !== 'undefined';
+  const win = typeof window !== 'undefined' ? (window as unknown as { ManagedMediaSource?: unknown }) : {};
+  const mse = typeof MediaSource !== 'undefined' || typeof win.ManagedMediaSource !== 'undefined';
   return {
     hlsNative: video.canPlayType('application/vnd.apple.mpegurl') !== '',
     hlsJs: mse,
@@ -25,31 +26,47 @@ export function detectCapabilities(): Capabilities {
 export type StreamFormat = 'hls' | 'dash' | 'mpegts' | 'flv' | 'native' | 'unsupported' | 'unknown';
 
 /**
- * Format detection from the URL PATHNAME only — query strings (auth tokens,
- * ?q=auto, channel_id) must never break detection. This is what makes links like
- * `https://host/render.mpd?auth=...&channel_id=917&q=auto` detect as DASH.
+ * Format detection from the URL PATHNAME (+ explicit query hints) — query strings
+ * (auth tokens, ?q=auto, channel_id) never break detection. Also unwraps /api/relay?u=…
+ * so relayed streams preserve their true upstream format.
  */
 export function formatOf(url: string, forced?: string): StreamFormat {
   if (forced && forced !== 'auto') {
-    const f = forced.toLowerCase();
+    const f = forced.toLowerCase().trim();
     if (['hls', 'dash', 'mpegts', 'flv', 'native'].includes(f)) return f as StreamFormat;
-    if (f === 'ts') return 'mpegts';
-    if (f === 'mp4') return 'native';
+    if (f === 'm3u8' || f === 'ism') return 'hls';
+    if (f === 'mpd') return 'dash';
+    if (f === 'ts' || f === 'm2ts') return 'mpegts';
+    if (f === 'mp4' || f === 'webm' || f === 'mkv') return 'native';
   }
-  let path = url;
-  try { path = new URL(url).pathname; } catch { path = url.split('?')[0]; }
+  let target = (url || '').trim();
+  if (target.includes('/api/relay?')) {
+    try {
+      const inner = new URL(target, 'http://localhost').searchParams.get('u');
+      if (inner) target = inner;
+    } catch { /* keep target */ }
+  }
+  if (/^(rtsp|rtmp|rtmps|udp|rtp|mms|mmsh):\/\//i.test(target)) return 'unsupported';
+  let path = target;
+  let search = '';
+  try {
+    const parsed = new URL(target);
+    path = parsed.pathname;
+    search = parsed.search.toLowerCase();
+  } catch {
+    const qIdx = target.indexOf('?');
+    path = qIdx >= 0 ? target.slice(0, qIdx) : target;
+    search = qIdx >= 0 ? target.slice(qIdx).toLowerCase() : '';
+  }
   const clean = path.toLowerCase();
-  if (/^(rtsp|rtmp|udp):\/\//i.test(url)) return 'unsupported';
-  if (clean.endsWith('.m3u8')) return 'hls';
-  if (clean.endsWith('.mpd')) return 'dash';
-  if (clean.endsWith('.ts')) return 'mpegts';
+  if (clean.endsWith('.m3u8') || clean.endsWith('.m3u') || clean.includes('.m3u8/')) return 'hls';
+  if (clean.endsWith('.mpd') || clean.includes('.mpd/')) return 'dash';
+  if (clean.endsWith('.ts') || clean.endsWith('.m2ts')) return 'mpegts';
   if (clean.endsWith('.flv')) return 'flv';
-  if (/\.(mp4|m4v|mov|webm|mkv|mp3|aac|ogg|opus|wav)$/.test(clean)) return 'native';
-  // Extension-less endpoints: sirf WAZEH DASH hint par dash. Pehle har
-  // /stream, /live, /playlist wale URL ko DASH guess kiya jata tha — ghalat
-  // engine matlab guaranteed error screen. Baqi native attempt karega aur
-  // user Play Stream se format force kar sakta hai.
-  if (/[?&](format|type)=(mpd|dash)/.test(url) || /(^|\/)render(\.|$)/.test(clean)) return 'dash';
-  if (/\.ism(\/|$)/.test(clean) || /manifest\(format=m3u8/.test(url.toLowerCase())) return 'hls';
+  if (/\.(mp4|m4v|mov|webm|mkv|ogv|mp3|aac|m4a|ogg|opus|flac|wav)$/.test(clean)) return 'native';
+  if (/[?&](format|type|output|manifest)=(m3u8|hls)\b/.test(search) || /manifest\(format=m3u8/i.test(target)) return 'hls';
+  if (/[?&](format|type|output|manifest)=(mpd|dash)\b/.test(search) || /(^|\/)render(\.|$)/.test(clean) || /\.ism\/manifest/i.test(clean)) return 'dash';
+  if (/[?&](format|type|output)=(ts|mpegts)\b/.test(search)) return 'mpegts';
+  if (/[?&](format|type|output)=flv\b/.test(search)) return 'flv';
   return 'unknown';
 }

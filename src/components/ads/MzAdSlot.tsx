@@ -1,108 +1,406 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Megaphone, X } from 'lucide-react';
+import { ExternalLink, Megaphone, Tag, Volume2, VolumeX, X } from 'lucide-react';
 import { useStore } from '@/app/store';
-import { HOUSE_PROMOS, LS_PREROLL_LAST, SS_PREROLL_SHOWN, ensureMzAdsLoaded, refreshMzAds, shouldShowPreroll, type MzSlot } from '@/lib/ads';
 import { SafeImage } from '@/components/media/MediaCard';
+import {
+  adsEnabled,
+  disableMzAds,
+  fetchMzSlot,
+  formatMzPrice,
+  HOUSE_PROMOS,
+  LS_PREROLL_LAST,
+  resolveMzHref,
+  resolveMzMediaUrl,
+  shouldShowPreroll,
+  SS_PREROLL_SHOWN,
+  trackMzEvent,
+  type MzAdItem,
+  type MzSlot,
+} from '@/lib/ads';
 
 const LS_SNOOZE = 'siravex-mz-snooze';
 
+function safeBgStyle(bg?: string): React.CSSProperties | undefined {
+  if (!bg) return undefined;
+  const trimmed = bg.trim();
+  if (/[;\\]|url\s*\(|expression\s*\(/i.test(trimmed)) return undefined;
+  if (/^(#[0-9a-f]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|(linear|radial)-gradient\([^)]+\))$/i.test(trimmed)) {
+    return { background: trimmed };
+  }
+  return undefined;
+}
+
+export interface MzAdSlotProps {
+  slot?: MzSlot;
+  placement?: 'home' | 'player' | 'epg' | string;
+  compact?: boolean;
+  className?: string;
+}
+
 /**
- * Mizanora ad slot — embed.js is div ko bharta hai. Agar API se ad na
- * aye (abhi campaigns inactive hain) to 2.5s baad bundled house-promo
- * fallback nazar ata hai, taake jagah khali na lage. API se pehla asal
- * ad ate hi fallback khud hat jata hai (slot ke andar content ajata hai).
+ * Mizanora Ad Slot — Direct React Renderer + Signed Impression/Click Tracking.
+ * - Fetches live Mizanora campaigns via `/api/ads/serve` (no hidden-DOM `embed.js` race).
+ * - Resolves relative `/product/...` links to `https://mizanora.vercel.app`.
+ * - Tracks viewport impressions via `IntersectionObserver` on a visible element.
+ * - Smoothly falls back to Mizanora's emerald-and-gold `HOUSE_PROMOS` shop cards when
+ *   no live campaign is active or when offline.
+ * - Immediately hides when disabled in Settings or snoozed for 24h.
  */
-export function MzAdSlot({ slot = 'auto', placement, className = '' }: { slot?: MzSlot; placement: 'home' | 'player'; className?: string }) {
+export function MzAdSlot({
+  slot = 'auto',
+  placement = 'home',
+  compact = false,
+  className = '',
+}: MzAdSlotProps) {
   const { settings } = useStore();
-  const ref = useRef<HTMLDivElement>(null);
-  const [filled, setFilled] = useState(false);
-  const [snoozed, setSnoozed] = useState(() => { try { return Number(localStorage.getItem(LS_SNOOZE) ?? 0) > Date.now(); } catch { return false; } });
-  const [promoIdx, setPromoIdx] = useState(0);
-  const showAds = settings.showAds;
+  const showAds = adsEnabled(settings.showAds);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const impressedIds = useRef<Set<string>>(new Set());
+
+  const [snoozed, setSnoozed] = useState(() => {
+    try { return Number(localStorage.getItem(LS_SNOOZE) ?? 0) > Date.now(); } catch { return false; }
+  });
+  const [ads, setAds] = useState<MzAdItem[]>([]);
+  const [rotateMs, setRotateMs] = useState(8_000);
+  const [adIdx, setAdIdx] = useState(0);
+  const [promoIdx, setPromoIdx] = useState(() => (placement === 'player' ? 1 : 0));
+  const [inView, setInView] = useState(false);
 
   useEffect(() => {
-    if (!showAds) return;
+    if (!showAds) {
+      disableMzAds();
+      setAds([]);
+      return;
+    }
+    if (snoozed) return;
     let alive = true;
-    void ensureMzAdsLoaded().then(() => { if (alive) refreshMzAds(); });
-    // Slot bhar gaya hai ya nahi — polling se detect (embed.js DOM bharta hai)
-    const iv = window.setInterval(() => {
-      const el = ref.current;
-      if (el && el.childElementCount > 0) { setFilled(true); }
-    }, 600);
-    const stop = window.setTimeout(() => window.clearInterval(iv), 15000);
-    return () => { alive = false; window.clearInterval(iv); window.clearTimeout(stop); };
-  }, [showAds]);
+    void fetchMzSlot(slot, 3).then((res) => {
+      if (!alive) return;
+      setAds(res.ads);
+      setRotateMs(res.rotateMs);
+      setAdIdx(0);
+    });
+    return () => { alive = false; };
+  }, [showAds, snoozed, slot, placement]);
 
-  // House-promo rotation jab tak asal ad nahi ata
+  // Rotate live Mizanora ads when multiple campaigns are returned
   useEffect(() => {
-    if (filled || snoozed || !showAds) return;
-    const iv = window.setInterval(() => setPromoIdx((i) => (i + 1) % HOUSE_PROMOS.length), 6000);
+    if (!showAds || snoozed || ads.length <= 1) return;
+    const iv = window.setInterval(() => setAdIdx((i) => (i + 1) % ads.length), Math.max(5_000, rotateMs));
     return () => window.clearInterval(iv);
-  }, [filled, snoozed, showAds]);
+  }, [showAds, snoozed, ads.length, rotateMs]);
+
+  // Rotate Mizanora shop house-promos when no live API campaign is active
+  useEffect(() => {
+    if (!showAds || snoozed || ads.length > 0) return;
+    const iv = window.setInterval(() => setPromoIdx((i) => (i + 1) % HOUSE_PROMOS.length), 6_000);
+    return () => window.clearInterval(iv);
+  }, [showAds, snoozed, ads.length]);
+
+  // Observe real viewport entry for Mizanora impression tracking
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el || !showAds || snoozed) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setInView(true);
+      },
+      { threshold: 0.35 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [showAds, snoozed, ads.length]);
+
+  const activeAd = ads.length > 0 ? ads[adIdx % ads.length] : null;
+
+  useEffect(() => {
+    if (!inView || !activeAd) return;
+    const key = `${placement}:${activeAd.id}`;
+    if (impressedIds.current.has(key)) return;
+    impressedIds.current.add(key);
+    trackMzEvent('impression', activeAd);
+  }, [inView, activeAd, placement]);
 
   if (!showAds || snoozed) return null;
-  const promo = HOUSE_PROMOS[promoIdx % HOUSE_PROMOS.length];
-  return (
-    <div className={`relative ${className}`}>
-      <div ref={ref} data-mz-ads={slot} className={filled ? '' : 'hidden'} aria-label="Mizanora advertisement" />
-      {!filled && (
-        <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card">
-          <span className="absolute left-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200"><Megaphone size={10} aria-hidden />Ad · Mizanora</span>
-          <button type="button" aria-label="Hide Mizanora ads for today" onClick={() => { try { localStorage.setItem(LS_SNOOZE, String(Date.now() + 24 * 3600 * 1000)); } catch { /* ignore */ } setSnoozed(true); }} className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"><X size={14} aria-hidden /></button>
-          <a href={promo.href} target="_blank" rel="noopener noreferrer" className="flex min-h-[104px] items-stretch gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx">
-            {promo.img && <span className="relative hidden w-32 shrink-0 min-[420px]:block sm:w-40"><SafeImage src={promo.img} title={promo.title} className="absolute inset-0 h-full w-full" /></span>}
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-3.5 pl-4">
-              <span className="inline-flex w-fit rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">{promo.badge}</span>
-              <span className="truncate text-base font-extrabold text-white sm:text-lg">{promo.title}</span>
-              <span className="truncate text-xs text-emerald-100/85 sm:text-sm">{promo.sub}</span>
-              <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">Shop on Mizanora<ExternalLink size={12} aria-hidden /></span>
+
+  const snoozeFor24h = () => {
+    try { localStorage.setItem(LS_SNOOZE, String(Date.now() + 24 * 3600 * 1000)); } catch { /* ignore */ }
+    setSnoozed(true);
+  };
+
+  if (activeAd) {
+    const isProduct = activeAd.type === 'product' && activeAd.product;
+    const isVideo = activeAd.type === 'video' && activeAd.video?.url;
+    const href = resolveMzHref(
+      activeAd.href || (isProduct && activeAd.product?.slug ? `/product/${activeAd.product.slug}` : undefined),
+    );
+    const imgUrl = resolveMzMediaUrl(isProduct ? (activeAd.product?.image || activeAd.img) : activeAd.img);
+    const videoUrl = isVideo ? resolveMzMediaUrl(activeAd.video?.url) : null;
+    const videoPoster = isVideo ? resolveMzMediaUrl(activeAd.video?.poster || activeAd.img) : null;
+    const title = (isProduct ? activeAd.product?.title : undefined) || activeAd.headline || activeAd.name || 'Mizanora Featured Offer';
+    const sub = activeAd.sub || '';
+    const cta = activeAd.cta || 'Shop on Mizanora';
+    const price = isProduct ? formatMzPrice(activeAd.product?.price, activeAd.product?.currency) : null;
+    const compareAt = isProduct ? formatMzPrice(activeAd.product?.compareAt, activeAd.product?.currency) : null;
+    const badge = (isProduct ? activeAd.product?.badge : undefined) || (isProduct ? 'SHOP' : undefined);
+    const customBg = safeBgStyle(activeAd.bg);
+
+    return (
+      <div ref={hostRef} className={`relative ${className}`} data-mz-ads={slot}>
+        <div
+          className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card"
+          style={customBg}
+        >
+          <span className="absolute left-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
+            {isProduct ? <Tag size={10} aria-hidden /> : <Megaphone size={10} aria-hidden />}
+            Ad · Mizanora
+          </span>
+          <button
+            type="button"
+            aria-label="Hide Mizanora ads for today"
+            onClick={snoozeFor24h}
+            className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+          >
+            <X size={14} aria-hidden />
+          </button>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+            onClick={() => trackMzEvent('click', activeAd)}
+            className={`flex ${compact ? 'min-h-[84px]' : 'min-h-[104px]'} items-stretch gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx`}
+          >
+            {videoUrl && !compact ? (
+              <span className="relative hidden w-36 shrink-0 bg-black min-[420px]:block sm:w-44">
+                <video
+                  src={videoUrl}
+                  poster={videoPoster ?? undefined}
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              </span>
+            ) : imgUrl ? (
+              <span className="relative hidden w-32 shrink-0 min-[420px]:block sm:w-40">
+                <SafeImage src={imgUrl} title={title} className="absolute inset-0 h-full w-full" />
+              </span>
+            ) : null}
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-3.5 pl-4 pt-7 sm:pt-3.5">
+              <span className="flex flex-wrap items-center gap-2">
+                {badge && (
+                  <span className="inline-flex w-fit rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">
+                    {badge}
+                  </span>
+                )}
+                {price && (
+                  <span className="inline-flex items-baseline gap-1.5 text-xs font-extrabold text-[#F2C766]">
+                    <span>{price}</span>
+                    {compareAt && <span className="text-[11px] font-normal text-white/50 line-through">{compareAt}</span>}
+                  </span>
+                )}
+              </span>
+              <span className="truncate text-base font-extrabold text-white sm:text-lg">{title}</span>
+              {!compact && sub && <span className="truncate text-xs text-emerald-100/85 sm:text-sm">{sub}</span>}
+              <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
+                {cta}
+                <ExternalLink size={12} aria-hidden />
+              </span>
             </span>
           </a>
-          <span className="absolute bottom-2 right-3 flex gap-1" aria-hidden>{HOUSE_PROMOS.map((p, i) => <span key={p.id} className={`h-1.5 rounded-full transition-all ${i === (promoIdx % HOUSE_PROMOS.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />)}</span>
+          {ads.length > 1 && (
+            <span className="absolute bottom-2 right-3 flex gap-1" aria-hidden>
+              {ads.map((a, i) => (
+                <span key={a.id} className={`h-1.5 rounded-full transition-all ${i === (adIdx % ads.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
+              ))}
+            </span>
+          )}
         </div>
-      )}
+      </div>
+    );
+  }
+
+  // Fallback: Mizanora shop house-promos
+  const promo = HOUSE_PROMOS[promoIdx % HOUSE_PROMOS.length];
+  return (
+    <div ref={hostRef} className={`relative ${className}`} data-mz-ads={slot}>
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950 via-[#0a2e21] to-emerald-900 shadow-card">
+        <span className="absolute left-3 top-2.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200">
+          <Megaphone size={10} aria-hidden />Ad · Mizanora
+        </span>
+        <button
+          type="button"
+          aria-label="Hide Mizanora ads for today"
+          onClick={snoozeFor24h}
+          className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+        >
+          <X size={14} aria-hidden />
+        </button>
+        <a
+          href={promo.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex ${compact ? 'min-h-[84px]' : 'min-h-[104px]'} items-stretch gap-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyanx`}
+        >
+          {promo.img && !compact && (
+            <span className="relative hidden w-32 shrink-0 min-[420px]:block sm:w-40">
+              <SafeImage src={promo.img} title={promo.title} className="absolute inset-0 h-full w-full" />
+            </span>
+          )}
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 p-3.5 pl-4 pt-7 sm:pt-3.5">
+            <span className="inline-flex w-fit rounded-full bg-[#F2C766] px-2 py-0.5 text-[10px] font-extrabold text-[#073D28]">
+              {promo.badge}
+            </span>
+            <span className="truncate text-base font-extrabold text-white sm:text-lg">{promo.title}</span>
+            {!compact && <span className="truncate text-xs text-emerald-100/85 sm:text-sm">{promo.sub}</span>}
+            <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-bold text-white">
+              Shop on Mizanora<ExternalLink size={12} aria-hidden />
+            </span>
+          </span>
+        </a>
+        <span className="absolute bottom-2 right-3 flex gap-1" aria-hidden>
+          {HOUSE_PROMOS.map((p, i) => (
+            <span key={p.id} className={`h-1.5 rounded-full transition-all ${i === (promoIdx % HOUSE_PROMOS.length) ? 'w-4 bg-[#F2C766]' : 'w-1.5 bg-white/30'}`} />
+          ))}
+        </span>
+      </div>
     </div>
   );
 }
 
 /**
- * Video pre-roll gate — player se pehle Mizanora video ad. Agar API se
- * video ad na aye (slot khali rahe) to 3s me khud dismiss ho jata hai —
- * viewer kabhi ad ki wajah se nahi rukta.
+ * Skippable Video Pre-Roll Gate — checks `/api/ads/serve?slot=video` directly.
+ * If no video campaign is active (or network fails), dismisses immediately with zero delay
+ * so viewers never wait on an empty spinner.
  */
 export function MzPreroll({ onDone }: { onDone: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [filled, setFilled] = useState(false);
-  const [skipIn, setSkipIn] = useState(5);
+  const { settings } = useStore();
   const doneRef = useRef(false);
-  const finish = useCallback(() => { if (!doneRef.current) { doneRef.current = true; onDone(); } }, [onDone]);
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+
+  const finish = useCallback(() => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onDoneRef.current();
+  }, []);
+
+  const [ad, setAd] = useState<MzAdItem | null>(null);
+  const [muted, setMuted] = useState(true);
+  const [skipIn, setSkipIn] = useState(5);
 
   useEffect(() => {
-    void ensureMzAdsLoaded().then(() => refreshMzAds());
-    const started = Date.now();
-    const iv = window.setInterval(() => {
-      const el = ref.current;
-      if (el && el.childElementCount > 0) setFilled(true);
-      if (!filled && Date.now() - started > 3000) { window.clearInterval(iv); finish(); }
-      if (Date.now() - started > 30000) { window.clearInterval(iv); finish(); } // max 30s gate
-    }, 400);
-    const cd = window.setInterval(() => setSkipIn((s) => Math.max(0, s - 1)), 1000);
-    return () => { window.clearInterval(iv); window.clearInterval(cd); };
-  }, [finish, filled]);
+    if (!adsEnabled(settings.showAds)) {
+      finish();
+      return;
+    }
+    let cancelled = false;
+    const hardCap = window.setTimeout(finish, 20_000);
+
+    void fetchMzSlot('video', 1).then((res) => {
+      if (cancelled) return;
+      const candidate = res.ads.find((a) => a.type === 'video' && resolveMzMediaUrl(a.video?.url));
+      if (!candidate) {
+        finish();
+        return;
+      }
+      const skipSec = Math.min(8, Math.max(3, Number(candidate.video?.skipAfter ?? 5) || 5));
+      setSkipIn(skipSec);
+      setAd(candidate);
+      trackMzEvent('impression', candidate);
+    }).catch(() => finish());
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(hardCap);
+    };
+  }, [settings.showAds, finish]);
+
+  useEffect(() => {
+    if (!ad) return;
+    const cd = window.setInterval(() => setSkipIn((s) => Math.max(0, s - 1)), 1_000);
+    return () => window.clearInterval(cd);
+  }, [ad]);
+
+  if (!ad) {
+    return (
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black shadow-card" role="region" aria-label="Advertisement">
+        <div className="absolute inset-0 grid place-items-center">
+          <span className="grid place-items-center gap-2">
+            <span className="h-10 w-10 animate-spin rounded-full border-[3px] border-white/25 border-t-emerald-400" />
+            <span className="text-xs text-white/70">Connecting stream…</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const videoUrl = resolveMzMediaUrl(ad.video?.url) ?? '';
+  const posterUrl = resolveMzMediaUrl(ad.video?.poster || ad.img) ?? undefined;
+  const href = resolveMzHref(ad.href);
 
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-black shadow-card" role="region" aria-label="Advertisement">
-      <div ref={ref} data-mz-ads="video" className="absolute inset-0 [&>*]:h-full" />
-      {!filled && <div className="absolute inset-0 grid place-items-center"><span className="grid place-items-center gap-2"><span className="h-10 w-10 animate-spin rounded-full border-[3px] border-white/25 border-t-emerald-400" /><span className="text-xs text-white/70">Ad load ho raha hai…</span></span></div>}
-      <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-200"><Megaphone size={10} aria-hidden />Ad · Mizanora</span>
-      <button type="button" disabled={skipIn > 0} onClick={finish} className="absolute bottom-3 right-3 min-h-[40px] rounded-full bg-white px-4 text-xs font-extrabold text-black shadow disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx">
-        {skipIn > 0 ? `Skip in ${skipIn}s` : 'Skip Ad →'}
-      </button>
+      <video
+        src={videoUrl}
+        poster={posterUrl}
+        autoPlay
+        muted={muted}
+        playsInline
+        onEnded={finish}
+        onError={finish}
+        className="h-full w-full bg-black object-contain"
+      />
+      <div className="absolute left-3 top-3 z-20 flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-200 backdrop-blur">
+          <Megaphone size={10} aria-hidden />Ad · Mizanora
+        </span>
+        <button
+          type="button"
+          onClick={() => setMuted((m) => !m)}
+          aria-label={muted ? 'Unmute ad' : 'Mute ad'}
+          className="grid h-8 w-8 place-items-center rounded-full bg-black/65 text-white hover:bg-black"
+        >
+          {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+        </button>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-3 pt-8">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-white">{ad.headline || ad.name || 'Mizanora'}</p>
+          {ad.sub && <p className="truncate text-xs text-white/75">{ad.sub}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer sponsored"
+            onClick={() => trackMzEvent('click', ad)}
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-full bg-emerald-500 px-3.5 text-xs font-extrabold text-white shadow hover:bg-emerald-400"
+          >
+            {ad.cta || 'Shop on Mizanora'}
+            <ExternalLink size={12} aria-hidden />
+          </a>
+          <button
+            type="button"
+            disabled={skipIn > 0}
+            onClick={finish}
+            className="min-h-[40px] rounded-full bg-white px-4 text-xs font-extrabold text-black shadow disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx"
+          >
+            {skipIn > 0 ? `Skip in ${skipIn}s` : 'Skip Ad →'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-/** PlayerPage ke liye gate decision — frequency + session rules. */
+/** PlayerPage gate decision — frequency + session rules + respects settings.showAds live. */
 export function usePrerollGate(): { show: boolean; dismiss: () => void } {
   const { settings } = useStore();
   const [show, setShow] = useState(() => {
@@ -114,8 +412,11 @@ export function usePrerollGate(): { show: boolean; dismiss: () => void } {
     } catch { return false; }
   });
   const dismiss = useCallback(() => {
-    try { localStorage.setItem(LS_PREROLL_LAST, String(Date.now())); sessionStorage.setItem(SS_PREROLL_SHOWN, '1'); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(LS_PREROLL_LAST, String(Date.now()));
+      sessionStorage.setItem(SS_PREROLL_SHOWN, '1');
+    } catch { /* ignore */ }
     setShow(false);
   }, []);
-  return { show, dismiss };
+  return { show: show && adsEnabled(settings.showAds), dismiss };
 }

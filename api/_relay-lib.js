@@ -1,8 +1,8 @@
 /**
- * SIRAVEX relay helpers — mehfooz hudood + HyperSpeed streaming:
- *  - Sirf http(s), GET/HEAD/OPTIONS. Private/loopback/link-local hosts hamesha blocked (SSRF guard).
- *  - HLS/DASH manifests rewrite hote hain, binary segments & live TS zero-buffer pipe hote hain.
- *  - Koi cookie/credential header forward nahi hota. Referer sirf jab playlist #EXTVLCOPT de.
+ * SIRAVEX Universal HTTP->HTTPS Relay Helpers (100% Web-Standard / Edge V8 Compatible — zero Node Buffer dependency):
+ *  - Only http(s), GET/HEAD/OPTIONS. Private/loopback/link-local hosts always blocked (SSRF guard).
+ *  - Rewrites HLS (.m3u8) & DASH (.mpd) manifests so ALL nested HTTP playlists, AES keys, init maps,
+ *    and .ts/.m4s media segments tunnel cleanly over HTTPS `/api/relay`.
  */
 const PRIVATE_V4 = [
   /^10\./, /^127\./, /^0\./, /^169\.254\./, /^192\.168\./,
@@ -14,7 +14,7 @@ const PRIVATE_V6_MAPPED = [
   /^::ffff:ac1[0-9a-f]:/i,
 ];
 
-const BINARY_SEG_EXT = /\.(ts|m2ts|mts|m4s|cmfv|cmfa|mp4|m4v|m4a|aac|mp3|ac3|ec3|vtt|webvtt|key)$/i;
+const BINARY_SEG_EXT = /\.(ts|m2ts|mts|m4s|cmfv|cmfa|mp4|m4v|m4a|mkv|webm|flv|aac|mp3|ac3|ec3|vtt|webvtt|key|jpg|jpeg|png|webp)$/i;
 
 export function blockedHost(rawUrl) {
   let u;
@@ -55,7 +55,7 @@ function isBinarySegmentUrl(absUrl) {
   }
 }
 
-/** HLS manifest ki har segment/key/sub-playlist line ko relay se guzaro. */
+/** Rewrites every segment, AES key, init map, and nested variant playlist inside an HLS manifest through `/api/relay`. */
 export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
   return String(text || '')
     .replace(/\r\n/g, '\n')
@@ -64,13 +64,13 @@ export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
       const trimmed = line.trim();
       if (!trimmed) return line;
       if (trimmed.startsWith('#')) {
-        const isBinaryTag = /^#EXT-X-(KEY|MAP)\b/i.test(trimmed);
-        return trimmed.replace(/URI="([^"]+)"/gi, (_, uri) => {
+        const isBinaryTag = /^#EXT-X-(KEY|MAP|PART|PRELOAD-HINT)\b/i.test(trimmed);
+        return trimmed.replace(/URI=(["'])([^"']+)\1/gi, (full, quote, uri) => {
           try {
             const abs = new URL(uri, manifestUrl).toString();
-            return `URI="${relayLink(abs, base, ref, isBinaryTag || isBinarySegmentUrl(abs))}"`;
+            return `URI=${quote}${relayLink(abs, base, ref, isBinaryTag || isBinarySegmentUrl(abs))}${quote}`;
           } catch {
-            return _;
+            return full;
           }
         });
       }
@@ -85,8 +85,8 @@ export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
 }
 
 /**
- * DASH MPD rewrite: BaseURL aur SegmentTemplate ke media/initialization
- * URLs relay se. $Number$ jese templates byte-identical rehte hain.
+ * DASH MPD rewrite: routes BaseURL and SegmentTemplate media/initialization URLs through `/api/relay`
+ * while keeping `$Number$` / `$RepresentationID$` tokens intact for Shaka substitution.
  */
 export function rewriteDashMpd(text, mpdUrl, base = '', ref = '') {
   const refSuffix = ref ? `&ref=${encodeURIComponent(ref)}` : '';

@@ -84,18 +84,20 @@ export function DirectPlayPage() {
         <img src="/icons/logo-256.png" alt="" width={46} height={46} className="h-[46px] w-[46px] rounded-xl shadow-glow" />
         <div>
           <h1 className="text-xl font-extrabold sm:text-2xl">Play Any Stream</h1>
-          <p className="text-sm text-muted">Universal Media Engine — koi bhi authorized stream link chalayein.</p>
+          <p className="text-sm text-muted">
+            Universal HTTP + HTTPS Media Engine — <code>http://</code> (:8080 / Xtream) aur <code>https://</code> dono links auto-bridge ke sath chalayein.
+          </p>
         </div>
       </div>
 
       <Card className="mb-4">
         <label className="block text-sm font-semibold">
-          Stream URL
+          Stream URL (HTTP or HTTPS)
           <Input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) { e.preventDefault(); play(); } }}
-            placeholder="https://…/stream.m3u8 · .mpd · .ts · .flv · .mp4"
+            placeholder="http://panel:8080/live/u/p/101.m3u8 · https://…/stream.mpd · .ts · .mp4"
             inputMode="url"
             className="mt-1.5"
             aria-describedby="fmt-note"

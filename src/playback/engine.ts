@@ -378,27 +378,27 @@ export class PlaybackEngine {
     }
   }
 
-  private scheduleLiveReconnect(reason: string, seq: number): boolean {
+  private scheduleLiveReconnect(reason: string, seq: number, fastEdgeContinue = false): boolean {
     if (!this.isCurrent(seq)) return false;
-    if (this.reconnectCount >= MAX_AUTO_RECONNECTS) return false;
+    if (!fastEdgeContinue && this.reconnectCount >= MAX_AUTO_RECONNECTS) return false;
     this.clearWatchdog();
     this.clearReconnectTimer();
-    this.reconnectCount++;
-    const attempt = this.reconnectCount;
-    const delay = RECONNECT_DELAYS_MS[Math.min(attempt - 1, RECONNECT_DELAYS_MS.length - 1)];
+    if (!fastEdgeContinue) this.reconnectCount++;
+    const attempt = Math.max(1, this.reconnectCount);
+    const delay = fastEdgeContinue ? 220 : RECONNECT_DELAYS_MS[Math.min(attempt - 1, RECONNECT_DELAYS_MS.length - 1)];
     this.healthySince = 0;
     this.set({
       state: 'buffering',
       reconnecting: true,
       reconnectAttempt: attempt,
       error: null,
-      notice: `${reason} (attempt ${attempt}/${MAX_AUTO_RECONNECTS})`,
+      notice: fastEdgeContinue ? '' : `${reason} (attempt ${attempt}/${MAX_AUTO_RECONNECTS})`,
     });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.isCurrent(seq)) return;
       this.triedIndices.clear();
-      this.candIdx = attempt === 1 && this.winningCandIdx < this.candidates.length ? this.winningCandIdx : 0;
+      this.candIdx = (fastEdgeContinue || attempt === 1) && this.winningCandIdx < this.candidates.length ? this.winningCandIdx : 0;
       void this.startCandidate(seq);
     }, delay);
     return true;
@@ -1131,6 +1131,11 @@ export class PlaybackEngine {
     this.tsPlayer = player;
     player.on(Mpegts.Events.ERROR, (_errType: string, errDetail: string) => {
       if (!this.isCurrent(seq)) return;
+      const longHealthy = this.candOk && this.healthySince > 0 && Date.now() - this.healthySince > 20000;
+      if (longHealthy && /eof|early|network/i.test(`${_errType} ${errDetail}`)) {
+        this.scheduleLiveReconnect('Refreshing live stream…', seq, true);
+        return;
+      }
       this.candidateFailed(mapPlaybackError({ message: errDetail || 'network', url, detailCode: `TS: ${errDetail || _errType}` }), seq);
     });
     player.on(Mpegts.Events.MEDIA_INFO, (info: { width?: number; height?: number; videoCodec?: string; audioCodec?: string }) => {

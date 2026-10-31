@@ -8,17 +8,59 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Mount /api/relay in local Vite dev & preview servers so stream failover works identically to Vercel. */
+/**
+ * Mounts the Edge Web-Standard `/api/relay` handler inside local Vite dev & preview servers
+ * so `http://` & `https://` stream bridging behaves 100% identically to Vercel Edge production.
+ */
 function siravexRelayPlugin(): Plugin {
   const attach = (middlewares: { use: (route: string, fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void }) => {
-    middlewares.use('/api/relay', (req, res, next) => {
+    middlewares.use('/api/relay', async (req, res, next) => {
       if (!req.url) return next();
       const origUrl = req.url.startsWith('/api/relay') ? req.url : `/api/relay${req.url.startsWith('/') ? '' : '/'}${req.url}`;
-      req.url = origUrl;
-      // @ts-expect-error plain JS serverless module
-      void import('./api/relay.js').then((m) => m.default(req, res)).catch(() => {
+      const abortCtrl = new AbortController();
+      req.once('close', () => abortCtrl.abort());
+      try {
+        const headers = new Headers();
+        for (const [k, v] of Object.entries(req.headers)) {
+          if (typeof v === 'string') headers.set(k, v);
+          else if (Array.isArray(v)) headers.set(k, v.join(', '));
+        }
+        const webReq = new Request(`http://localhost${origUrl}`, {
+          method: req.method || 'GET',
+          headers,
+          signal: abortCtrl.signal,
+        });
+        const mod = await import('./api/relay.js');
+        const webRes: Response = await mod.default(webReq);
+        res.statusCode = webRes.status;
+        webRes.headers.forEach((val, key) => res.setHeader(key, val));
+        res.flushHeaders?.();
+        if (!webRes.body || req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+        const reader = webRes.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || !value || res.writableEnded || res.destroyed) break;
+          const ok = res.write(value);
+          if (!ok) {
+            await new Promise<void>((resolve) => {
+              const onReady = () => {
+                res.off('drain', onReady);
+                res.off('close', onReady);
+                resolve();
+              };
+              res.once('drain', onReady);
+              res.once('close', onReady);
+            });
+          }
+        }
+        if (!res.writableEnded) res.end();
+      } catch {
         if (!res.headersSent) { res.statusCode = 502; res.end('relay error'); }
-      });
+        else if (!res.writableEnded) res.end();
+      }
     });
   };
   return {
@@ -37,7 +79,7 @@ export default defineConfig({
       includeAssets: ['icons/favicon-32.png', 'icons/favicon-64.png', 'icons/apple-touch-icon.png', 'offline.html'],
       manifest: {
         name: 'SIRAVEX', short_name: 'SIRAVEX',
-        description: 'Premium IPTV & Universal Media Player — play your own authorized sources.',
+        description: 'Premium IPTV & Universal Media Player — play your own authorized HTTP & HTTPS sources.',
         theme_color: '#050816', background_color: '#050816', display: 'standalone',
         scope: '/', start_url: '/', orientation: 'portrait-primary', categories: ['entertainment', 'video'],
         icons: [
@@ -50,7 +92,17 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2}'], maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: '/index.html', navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [{ urlPattern: ({ request }) => request.destination === 'image', handler: 'CacheFirst', options: { cacheName: 'siravex-images', expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 7 } } }],
+        runtimeCaching: [
+          {
+            // Only cache HTTPS / same-origin non-API images so Service Worker never triggers Mixed-Content fetch errors on http:// logos!
+            urlPattern: ({ request, url, sameOrigin }) =>
+              request.destination === 'image' &&
+              !url.pathname.startsWith('/api/') &&
+              (url.protocol === 'https:' || sameOrigin),
+            handler: 'CacheFirst',
+            options: { cacheName: 'siravex-images', expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 7 } },
+          },
+        ],
       },
       devOptions: { enabled: false },
     }),

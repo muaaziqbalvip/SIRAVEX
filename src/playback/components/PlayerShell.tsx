@@ -1100,10 +1100,21 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
               <h2 className="text-sm font-bold text-white sm:text-lg">Playback failed — {snap.error.category.replace(/-/g, ' ')}</h2>
               {snap.error.codeLabel && <p className="mt-1 inline-block rounded-full border border-white/20 bg-white/5 px-2.5 py-0.5 font-mono text-[10px] text-amber-300">{snap.error.codeLabel}</p>}
               <p className="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-muted sm:text-sm">{snap.error.message}</p>
+              {/^http:\/\//i.test(item.url) && typeof window !== 'undefined' && window.location?.protocol === 'https:' && (
+                <p className="mx-auto mt-2 max-w-sm rounded-xl border border-sky-500/30 bg-sky-950/35 px-3 py-1.5 text-[11px] leading-4 text-sky-200">
+                  Tip: Agar ye provider sirf aap ke home ISP IP par <code>http://</code> allow karta hai, to browser URL bar ke <strong>Lock icon → Site settings → Insecure content: Allow</strong> kar ke Retry dabayein ya VLC mein kholein.
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap justify-center gap-2">
                 <Button className="min-h-[38px] px-3.5 text-xs" onClick={() => eng()?.retry()}>
                   <RotateCcw size={14} aria-hidden />Retry
                 </Button>
+                <a
+                  href={`vlc://${item.url.replace(/^https?:\/\//i, (m) => m)}`}
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-border bg-card px-3.5 text-xs font-bold text-silver hover:border-sky-400"
+                >
+                  <ExternalLink size={14} aria-hidden />Open in VLC
+                </a>
                 <Button variant="outline" className="min-h-[38px] px-3.5 text-xs" onClick={openInDirect}>
                   <ExternalLink size={14} aria-hidden />Play Stream
                 </Button>

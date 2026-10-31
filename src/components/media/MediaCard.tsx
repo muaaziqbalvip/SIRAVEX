@@ -7,18 +7,42 @@ import { useStore } from '@/app/store';
 import type { MediaItem } from '@/types/models';
 
 export function SafeImage({ src, title, className = '', contain }: { src?: string; title: string; className?: string; contain?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { setFailed(false); }, [src]);
+  const [stage, setStage] = useState<'primary' | 'relay' | 'failed'>('primary');
+  useEffect(() => { setStage('primary'); }, [src]);
   const safe = src ? sanitizeUrl(src) : null;
   const initials = cleanTitle(title).replace(/[^a-zA-Z0-9 ]/g, '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'TV';
-  if (!safe || failed) {
+
+  if (!safe || stage === 'failed') {
     return (
       <div className={`grid place-items-center bg-gradient-to-br from-slate-800 via-slate-900 to-sky-950 font-bold text-cyan-200 ${className}`} aria-hidden>
         <span className="text-lg tracking-wider">{initials}</span>
       </div>
     );
   }
-  return <img src={safe} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={`${contain ? 'object-contain p-2' : 'object-cover'} ${className}`} />;
+
+  const isHttpsPage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+  const isPlainHttp = /^http:\/\//i.test(safe);
+  const needsImmediateRelay = isHttpsPage && isPlainHttp && (/^http:\/\/(\d{1,3}\.){3}\d{1,3}\b/i.test(safe) || /^http:\/\/[^/]+:(?!80\b)\d+/i.test(safe));
+  const relaySrc = `/api/relay?u=${encodeURIComponent(safe)}&seg=1`;
+  const activeSrc = needsImmediateRelay || stage === 'relay' ? relaySrc : safe;
+
+  return (
+    <img
+      src={activeSrc}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (!needsImmediateRelay && stage === 'primary' && isHttpsPage && isPlainHttp) {
+          setStage('relay');
+        } else {
+          setStage('failed');
+        }
+      }}
+      className={`${contain ? 'object-contain p-2' : 'object-cover'} ${className}`}
+    />
+  );
 }
 
 /**

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { blockedHost, relayLink, rewriteDashMpd, rewriteHlsManifest } from '../../api/_relay-lib.js';
+import relayHandler, { config as relayEdgeConfig } from '../../api/relay.js';
 
 describe('API Relay SSRF protection & manifest rewriting', () => {
   it('blocks loopback, private IPv4, link-local, metadata, and IPv6/mapped-IPv4 hosts', () => {
@@ -75,5 +76,50 @@ describe('API Relay SSRF protection & manifest rewriting', () => {
     expect(out).toContain('$Number$');
     expect(out).toContain(encodeURIComponent('https://portal.example.com/'));
     expect(relayLink('http://a.example/seg.m4s', 'https://siravex.vercel.app', 'https://r.example/')).toContain('&ref=');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('runs on Vercel Edge runtime and bridges HTTP HLS, binary MPEG-TS sniff (415), and Dual-UA fallback', async () => {
+    expect(relayEdgeConfig.runtime).toBe('edge');
+
+    // 1. SSRF private IP blocked
+    const blockedRes = await relayHandler(new Request('https://siravex.vercel.app/api/relay?u=http%3A%2F%2F127.0.0.1%3A8080%2Flive.m3u8'));
+    expect(blockedRes.status).toBe(403);
+
+    // 2. Dual-UA auto-retry when IPTV panel blocks first UA (403 -> 200 #EXTM3U)
+    let calls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      calls++;
+      if (calls === 1) return new Response('Forbidden UA', { status: 403 });
+      return new Response('#EXTM3U\n#EXTINF:6.0,\nchunk-1.ts\n', {
+        status: 200,
+        headers: { 'content-type': 'application/vnd.apple.mpegurl' },
+      });
+    });
+
+    const okRes = await relayHandler(
+      new Request('https://siravex.vercel.app/api/relay?u=http%3A%2F%2Fpanel.example.com%3A8080%2Flive%2Fu%2Fp%2F1.m3u8&expect=hls'),
+    );
+    expect(okRes.status).toBe(200);
+    expect(calls).toBe(2);
+    const rewritten = await okRes.text();
+    expect(rewritten).toContain('/api/relay?u=');
+    expect(rewritten).toContain('&seg=1');
+
+    // 3. Raw 0x47 MPEG-TS stream returns 415 immediately when probed with expect=hls
+    const tsPacket = new Uint8Array(376);
+    tsPacket[0] = 0x47;
+    tsPacket[188] = 0x47;
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(tsPacket, { status: 200, headers: { 'content-type': 'application/octet-stream' } }),
+    );
+    const tsProbe = await relayHandler(
+      new Request('https://siravex.vercel.app/api/relay?u=http%3A%2F%2Fpanel.example.com%3A8080%2Fu%2Fp%2F101&expect=hls'),
+    );
+    expect(tsProbe.status).toBe(415);
+    expect(tsProbe.headers.get('x-siravex-detected')).toBe('mpegts');
   });
 });

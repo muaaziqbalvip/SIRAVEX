@@ -36,30 +36,38 @@ interface PendingDirectives {
   licenseType?: string;
   licenseKeyRaw?: string;
   referrer?: string;
+  userAgent?: string;
 }
 
-function splitPipeHeaders(rawLine: string): { urlPart: string; referrer?: string } {
+function splitPipeHeaders(rawLine: string): { urlPart: string; referrer?: string; userAgent?: string } {
   const pipeIdx = rawLine.indexOf('|');
   if (pipeIdx < 0) return { urlPart: rawLine };
   const urlPart = rawLine.slice(0, pipeIdx).trim();
   const headerPart = rawLine.slice(pipeIdx + 1).trim();
   let referrer: string | undefined;
+  let userAgent: string | undefined;
   for (const pair of headerPart.split('&')) {
     const eq = pair.indexOf('=');
     if (eq <= 0) continue;
     const k = pair.slice(0, eq).trim().toLowerCase();
-    const v = decodeURIComponent(pair.slice(eq + 1).trim());
+    let v = pair.slice(eq + 1).trim();
+    try { v = decodeURIComponent(v); } catch { /* raw */ }
     if ((k === 'referer' || k === 'referrer' || k === 'origin') && sanitizeUrl(v)) {
       referrer = sanitizeUrl(v) ?? undefined;
+    } else if (k === 'user-agent' && v) {
+      userAgent = v.slice(0, 220);
     }
   }
-  return { urlPart, referrer };
+  return { urlPart, referrer, userAgent };
 }
 
-function resolveDrmDirectives(d: PendingDirectives): Pick<MediaItem, 'forcedFormat' | 'drmClearKeys' | 'drmLicenseUrl' | 'referrer'> {
-  const out: Pick<MediaItem, 'forcedFormat' | 'drmClearKeys' | 'drmLicenseUrl' | 'referrer'> = {};
+function resolveDrmDirectives(
+  d: PendingDirectives,
+): Pick<MediaItem, 'forcedFormat' | 'drmClearKeys' | 'drmLicenseUrl' | 'referrer' | 'userAgent'> {
+  const out: Pick<MediaItem, 'forcedFormat' | 'drmClearKeys' | 'drmLicenseUrl' | 'referrer' | 'userAgent'> = {};
   if (d.forcedFormat) out.forcedFormat = d.forcedFormat;
   if (d.referrer) out.referrer = d.referrer;
+  if (d.userAgent) out.userAgent = d.userAgent;
 
   const rawKey = d.licenseKeyRaw?.trim();
   if (rawKey) {
@@ -129,6 +137,8 @@ export function parseM3U(text: string): ParsedPlaylist {
         const val = rest.slice(eq + 1).trim();
         if ((key === 'http-referrer' || key === 'http-referer' || key === 'http-origin') && sanitizeUrl(val)) {
           directives.referrer = sanitizeUrl(val) ?? undefined;
+        } else if (key === 'http-user-agent' && val) {
+          directives.userAgent = val.slice(0, 220);
         }
       }
       continue;
@@ -150,9 +160,13 @@ export function parseM3U(text: string): ParsedPlaylist {
 
     if (line.startsWith('#')) continue;
 
-    // Stream URL line (supports optional Kodi `|Referer=...` suffix)
-    const { urlPart, referrer: pipeRef } = splitPipeHeaders(line);
-    const rawUrl = sanitizeUrl(urlPart);
+    // Stream URL line (supports optional Kodi `|Referer=...&User-Agent=...` suffix)
+    const { urlPart, referrer: pipeRef, userAgent: pipeUa } = splitPipeHeaders(line);
+    const candidatePart =
+      !/^[a-z][a-z0-9+.-]*:/i.test(urlPart) && /^([a-z0-9-]+\.[a-z0-9.-]+|\d{1,3}(?:\.\d{1,3}){3})(:\d+)?\/.+/i.test(urlPart)
+        ? `http://${urlPart}`
+        : urlPart;
+    const rawUrl = sanitizeUrl(candidatePart);
     if (!rawUrl) {
       warnings.push(`Line ${i + 1}: invalid or unsupported stream URL skipped.`);
       pending = null;
@@ -166,6 +180,7 @@ export function parseM3U(text: string): ParsedPlaylist {
       total++;
     }
     if (pipeRef && !directives.referrer) directives.referrer = pipeRef;
+    if (pipeUa && !directives.userAgent) directives.userAgent = pipeUa;
     const drmFields = resolveDrmDirectives(directives);
     const group = pending.attrs['group-title'] || '';
     const kind = classify(pending.title, group, url);

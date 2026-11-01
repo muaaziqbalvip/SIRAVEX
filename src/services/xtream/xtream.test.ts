@@ -1,15 +1,45 @@
-import { describe, expect, it } from 'vitest';
-import { decodeB64, normalizeServer, streamUrls } from './xtream';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { connectXtream, decodeB64, extractCredsFromUrl, normalizeServer, streamUrls } from './xtream';
 import { normalizeStreamUrl } from '@/lib/security';
 import { extractYear } from '@/services/playlist/m3u';
 
 const creds = { server: 'http://prov.example:8080/', username: 'u ser', password: 'p@ss' };
 
 describe('xtream service', () => {
-  it('normalizes server addresses', () => {
+  it('normalizes server addresses (with or without http://)', () => {
     expect(normalizeServer('http://prov.example:8080/')).toBe('http://prov.example:8080');
+    expect(normalizeServer('prov.example:8080')).toBe('http://prov.example:8080');
+    expect(normalizeServer('185.20.30.40:8080/c')).toBe('http://185.20.30.40:8080');
     expect(normalizeServer('http://prov.example:8080/player_api.php?x=1')).toBe('http://prov.example:8080');
     expect(normalizeServer('notaurl')).toBeNull();
+  });
+
+  it('extracts credentials from pasted get.php URLs and honors ts-only Xtream panels', async () => {
+    const ext = extractCredsFromUrl('http://star.example:8080/get.php?username=ali&password=786&type=m3u_plus&output=ts');
+    expect(ext).toEqual({ server: 'http://star.example:8080', username: 'ali', password: '786' });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const s = String(input);
+      if (s.includes('action=get_live_streams')) {
+        return new Response(JSON.stringify([{ stream_id: 99, name: 'Geo News', category_id: '1' }]), { status: 200 });
+      }
+      if (s.includes('action=')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ user_info: { auth: 1, status: 'Active', allowed_output_formats: ['ts'] } }),
+        { status: 200 },
+      );
+    });
+
+    const res = await connectXtream({ server: 'star.example:8080', username: 'ali', password: '786' });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].url).toBe('http://star.example:8080/live/ali/786/99.ts');
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
   it('builds HLS live urls and encoded vod/series urls', () => {
     const u = streamUrls(creds);

@@ -121,5 +121,42 @@ describe('API Relay SSRF protection & manifest rewriting', () => {
     );
     expect(tsProbe.status).toBe(415);
     expect(tsProbe.headers.get('x-siravex-detected')).toBe('mpegts');
+
+    // 4. Sticky UA + Cookie forwarded onto child segments after 302 Load-Balancer redirect,
+    //    AND Stalker MAC Cookie + Bearer headers sent upstream!
+    let seenHeaders: Headers | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async (_target, init) => {
+      seenHeaders = new Headers(init?.headers);
+      return new Response('#EXTM3U\n#EXTINF:4.0,\nseg_lb_1.ts\n', {
+        status: 200,
+        headers: {
+          'content-type': 'application/vnd.apple.mpegurl',
+          'set-cookie': 'xc_sid=tok987; Path=/',
+        },
+      });
+    });
+
+    const stalkerHls = await relayHandler(
+      new Request(
+        'https://siravex.vercel.app/api/relay?u=http%3A%2F%2Fportal.example.com%3A8080%2Flive%2Fu%2Fp%2F5.m3u8&mac=00%3A1A%3A79%3AAA%3ABB%3ACC&stoken=BEAR123',
+      ),
+    );
+    expect(stalkerHls.status).toBe(200);
+    expect(seenHeaders!.get('cookie')).toContain('mac=00%3A1A%3A79%3AAA%3ABB%3ACC');
+    expect(seenHeaders!.get('x-user-agent')).toContain('MAG250');
+    expect(seenHeaders!.get('authorization')).toBe('Bearer BEAR123');
+    const body = await stalkerHls.text();
+    expect(body).toContain('ua=mag');
+    expect(body).toContain('ck=xc_sid%3Dtok987');
+
+    // 5. Dead/empty Xtream .m3u8 (`#EXTM3U` with 0 segments) returns 415 so engine switches to `.ts`!
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('#EXTM3U\n#EXT-X-ENDLIST\n', { status: 200, headers: { 'content-type': 'application/vnd.apple.mpegurl' } }),
+    );
+    const deadHls = await relayHandler(
+      new Request('https://siravex.vercel.app/api/relay?u=http%3A%2F%2Fpanel.example.com%3A8080%2Flive%2Fu%2Fp%2F77.m3u8&expect=hls'),
+    );
+    expect(deadHls.status).toBe(415);
+    expect(deadHls.headers.get('x-siravex-detected')).toBe('mpegts');
   });
 });

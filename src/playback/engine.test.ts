@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PlaybackEngine, clearHostRouteMemory, prioritizeCandidatesForHost, warmPlaybackEngines } from './engine';
+import { PlaybackEngine, clearHostRouteMemory, prioritizeCandidatesForHost, toAbsoluteStreamUrl, warmPlaybackEngines } from './engine';
 import type { SourceCandidate } from '@/lib/candidates';
 
 describe('HyperSpeed PlaybackEngine v6 — host route memory, smart CORS jump & pre-warm', () => {
@@ -82,5 +82,12 @@ describe('HyperSpeed PlaybackEngine v6 — host route memory, smart CORS jump & 
 
   it('warmPlaybackEngines executes safely without throwing', () => {
     expect(() => warmPlaybackEngines()).not.toThrow();
+  });
+
+  it('converts root-relative /api/relay URLs to absolute URLs so mpegts.js Blob Workers never fail URL parsing', () => {
+    const abs = toAbsoluteStreamUrl('/api/relay?u=http%3A%2F%2Fpanel%3A8080%2Flive%2Fu%2Fp%2F1.ts&seg=1');
+    expect(/^https?:\/\//i.test(abs)).toBe(true);
+    // Must parse cleanly inside a `blob:` WorkerGlobalScope without throwing TypeError!
+    expect(() => new URL(abs, 'blob:https://siravex.vercel.app/550e8400-e29b-41d4-a716-446655440000')).not.toThrow();
   });
 });

@@ -1,5 +1,5 @@
 export type MediaKind = 'live' | 'movie' | 'series';
-export type SourceType = 'file' | 'url' | 'xtream' | 'demo';
+export type SourceType = 'file' | 'url' | 'xtream' | 'stalker' | 'demo';
 
 export interface PlaylistSource {
   id: string;
@@ -8,6 +8,8 @@ export interface PlaylistSource {
   url?: string; // never log in full; encrypted when synced to user's private Firebase vault
   server?: string;
   username?: string;
+  /** MAC address (`00:1A:79:...`) for Stalker / Ministra / MAG portals; encrypted in Firebase vault. */
+  mac?: string;
   /** Password is stored ONLY when the user opts in ("remember password"). Encrypted in Firebase vault; never logged/exported. */
   password?: string;
   hasPassword?: boolean;
@@ -49,11 +51,16 @@ export interface MediaItem {
   seriesTitle?: string;
   season?: number;
   episode?: number;
-  /** Optional format/DRM/referrer hints supplied by authorized M3U (#KODIPROP / #EXTVLCOPT). */
+  /** Optional format/DRM/referrer/UA/Stalker hints supplied by authorized M3U / Xtream / Stalker Portal. */
   forcedFormat?: string;
   drmClearKeys?: Record<string, string>;
   drmLicenseUrl?: string;
   referrer?: string;
+  userAgent?: string;
+  stalkerPortal?: string;
+  stalkerMac?: string;
+  stalkerCmd?: string;
+  stalkerKind?: 'itv' | 'vod';
 }
 
 export interface EpgProgramme {

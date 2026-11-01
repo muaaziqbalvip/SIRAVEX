@@ -4,6 +4,7 @@ import { isShakaCritical, mapPlaybackError, type PlaybackErrorInfo } from './err
 import { normalizeStreamUrl } from '@/lib/security';
 import { parseClearKeys } from '@/lib/clearkey';
 import { buildCandidates, type SourceCandidate } from '@/lib/candidates';
+import { resolveStalkerStreamUrl } from '@/services/stalker/stalker';
 import {
   buildDashAudioOptions,
   buildDashQualityOptions,
@@ -27,10 +28,34 @@ export interface LoadOptions {
   clearKeys?: Record<string, string>;
   licenseUrl?: string;
   referrer?: string;
+  userAgent?: string;
+  stalker?: {
+    portal: string;
+    mac: string;
+    cmd: string;
+    kind?: 'itv' | 'vod';
+  };
   autoplay?: boolean;
   isLiveHint?: boolean;
   preferredAudioLang?: string;
   preferredSubtitleLang?: string;
+}
+
+/**
+ * Resolves root-relative URLs (`/api/relay?...`) to full absolute `https://origin/api/relay?...` URLs!
+ * CRITICAL: `mpegts.js` (`enableWorker: true`) runs `self.fetch(url)` inside a `blob:https://...` Web Worker,
+ * where relative `/api/relay?...` URLs throw `TypeError: Invalid URL` 100% of the time unless made absolute!
+ */
+export function toAbsoluteStreamUrl(url: string): string {
+  if (!url || /^https?:\/\//i.test(url) || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  if (typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null') {
+    try {
+      return new URL(url, window.location.origin).toString();
+    } catch {
+      return url;
+    }
+  }
+  return url;
 }
 
 export interface PlayerSnapshot {
@@ -577,6 +602,8 @@ export class PlaybackEngine {
   async load(rawUrl: string, opts: LoadOptions & { resetRetry?: boolean } = {}): Promise<void> {
     const seq = ++this.loadSeq;
     let effectiveOpts: LoadOptions = { ...opts };
+    let effectiveRawUrl = rawUrl;
+
     if (!effectiveOpts.clearKeys) {
       try {
         const ckParam = new URL(rawUrl, 'http://localhost').searchParams.get('ck');
@@ -594,10 +621,40 @@ export class PlaybackEngine {
     this.triedIndices.clear();
     this.clearWatchdog();
     this.clearReconnectTimer();
+    this.primaryUrl = rawUrl;
     if (!this.isCurrent(seq)) return;
 
-    const url = effectiveOpts.forcedFormat && effectiveOpts.forcedFormat !== 'auto' ? rawUrl : normalizeStreamUrl(rawUrl);
-    this.primaryUrl = url;
+    // Stalker / Ministra / MAG MAC Portal dynamic `create_link` resolution
+    let stalkerMac: string | undefined;
+    if (effectiveOpts.stalker?.portal && effectiveOpts.stalker?.mac && effectiveOpts.stalker?.cmd) {
+      this.set({ state: 'loading', error: null, notice: '' });
+      try {
+        const resolved = await resolveStalkerStreamUrl(effectiveOpts.stalker);
+        if (!this.isCurrent(seq)) return;
+        effectiveRawUrl = resolved.url;
+        stalkerMac = resolved.mac;
+        if (!effectiveOpts.referrer) effectiveOpts = { ...effectiveOpts, referrer: resolved.referrer };
+      } catch (e) {
+        if (!this.isCurrent(seq)) return;
+        this.teardownAdapter();
+        this.set({
+          state: 'error',
+          reconnecting: false,
+          error: mapPlaybackError({ message: e instanceof Error ? e.message : 'Stalker stream failed', url: rawUrl }),
+        });
+        return;
+      }
+    }
+
+    const mseAvailable =
+      typeof MediaSource !== 'undefined' ||
+      (typeof window !== 'undefined' && typeof (window as unknown as { ManagedMediaSource?: unknown }).ManagedMediaSource !== 'undefined');
+    const keepExplicitTs = mseAvailable && /\.(ts|m2ts)(\?|#|$)/i.test(effectiveRawUrl);
+    const url =
+      (effectiveOpts.forcedFormat && effectiveOpts.forcedFormat !== 'auto') || keepExplicitTs
+        ? effectiveRawUrl
+        : normalizeStreamUrl(effectiveRawUrl);
+    this.primaryUrl = rawUrl;
     const format: StreamFormat = formatOf(url, effectiveOpts.forcedFormat);
     if (format === 'unsupported') {
       this.teardownAdapter();
@@ -611,6 +668,8 @@ export class PlaybackEngine {
       relay: true,
       httpsPage,
       referrer: effectiveOpts.referrer,
+      userAgent: effectiveOpts.userAgent,
+      mac: stalkerMac,
     });
     this.candidates = effectiveOpts.forcedFormat && effectiveOpts.forcedFormat !== 'auto'
       ? rawCandidates
@@ -660,11 +719,12 @@ export class PlaybackEngine {
       }
     }, timeoutMs);
 
+    const playUrl = toAbsoluteStreamUrl(cand.url);
     try {
-      if (cand.format === 'hls') await this.loadHls(cand.url, seq);
-      else if (cand.format === 'dash') await this.loadDash(cand.url, this.lastOpts, seq);
-      else if (cand.format === 'mpegts' || cand.format === 'flv') await this.loadTs(cand.url, cand.format, seq);
-      else this.loadNative(cand.url, false, seq);
+      if (cand.format === 'hls') await this.loadHls(playUrl, seq);
+      else if (cand.format === 'dash') await this.loadDash(playUrl, this.lastOpts, seq);
+      else if (cand.format === 'mpegts' || cand.format === 'flv') await this.loadTs(playUrl, cand.format, seq);
+      else this.loadNative(playUrl, false, seq);
     } catch (e) {
       if (!this.isCurrent(seq)) return;
       const errObj = e as { code?: number; message?: string } | null;
@@ -736,9 +796,9 @@ export class PlaybackEngine {
       manifestLoadingTimeOut: 5500,
       manifestLoadingMaxRetry: hasFallback ? 0 : 2,
       levelLoadingTimeOut: 6000,
-      levelLoadingMaxRetry: hasFallback ? 1 : 2,
-      fragLoadingTimeOut: 9500,
-      fragLoadingMaxRetry: 3,
+      levelLoadingMaxRetry: hasFallback ? 0 : 2,
+      fragLoadingTimeOut: 8500,
+      fragLoadingMaxRetry: hasFallback ? 1 : 3,
       ...(prefLang ? { audioPreference: { lang: prefLang } } : {}),
     });
     this.hls = hls;
@@ -914,12 +974,17 @@ export class PlaybackEngine {
       }
 
       const httpCode = (data.response as { code?: number } | undefined)?.code;
-      const isManifestFail =
+      const isInitialHlsFail =
         data.details === HlsCtor.ErrorDetails.MANIFEST_LOAD_ERROR ||
         data.details === HlsCtor.ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
-        data.details === HlsCtor.ErrorDetails.MANIFEST_PARSING_ERROR;
+        data.details === HlsCtor.ErrorDetails.MANIFEST_PARSING_ERROR ||
+        data.details === HlsCtor.ErrorDetails.LEVEL_LOAD_ERROR ||
+        data.details === HlsCtor.ErrorDetails.LEVEL_LOAD_TIMEOUT ||
+        data.details === HlsCtor.ErrorDetails.LEVEL_EMPTY_ERROR ||
+        data.details === HlsCtor.ErrorDetails.FRAG_LOAD_ERROR ||
+        data.details === HlsCtor.ErrorDetails.FRAG_LOAD_TIMEOUT;
 
-      // If /api/relay returned 415 (detected raw MPEG-TS on extensionless stream), jump straight to mpegts.js!
+      // If /api/relay returned 415 (detected raw MPEG-TS or ts-only Xtream stream), jump straight to mpegts.js!
       if (!this.candOk && httpCode === 415) {
         this.candidateFailed(
           mapPlaybackError({ message: data.details, url, detailCode: 'Relay detected raw MPEG-TS stream' }),
@@ -929,8 +994,8 @@ export class PlaybackEngine {
         return;
       }
 
-      // Fast-fail to next candidate (/api/relay or .ts) immediately when initial manifest is CORS-blocked/unreachable
-      if (!this.candOk && isManifestFail && this.triedIndices.size < this.candidates.length - 1) {
+      // Fast-fail to next candidate (e.g. MPEG-TS · Relay `.ts`) immediately when initial HLS manifest/level/first-segment fails!
+      if (!this.candOk && isInitialHlsFail && this.triedIndices.size < this.candidates.length - 1) {
         this.candidateFailed(mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }), seq);
         return;
       }
@@ -955,8 +1020,8 @@ export class PlaybackEngine {
       this.candidateFailed(mapPlaybackError({ message: data.details, url, detailCode: `HLS ${data.type}: ${data.details}` }), seq);
     });
 
-    // When loading via SIRAVEX Relay, attach `&expect=hls` so binary TS streams return 415 in ~80ms instead of hanging 6s!
-    const sourceUrl = url.startsWith('/api/relay?') && !url.includes('&expect=') ? `${url}&expect=hls` : url;
+    // When loading via SIRAVEX Relay, attach `&expect=hls` so binary TS / ts-only Xtream streams return 415 in ~80ms!
+    const sourceUrl = url.includes('/api/relay?') && !url.includes('&expect=') ? `${url}&expect=hls` : url;
     hls.attachMedia(this.video);
     hls.on(HlsCtor.Events.MEDIA_ATTACHED, () => {
       if (this.isCurrent(seq) && this.hls === hls) hls.loadSource(sourceUrl);

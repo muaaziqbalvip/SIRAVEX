@@ -2,7 +2,8 @@
  * SIRAVEX Universal HTTP->HTTPS Relay Helpers (100% Web-Standard / Edge V8 Compatible — zero Node Buffer dependency):
  *  - Only http(s), GET/HEAD/OPTIONS. Private/loopback/link-local hosts always blocked (SSRF guard).
  *  - Rewrites HLS (.m3u8) & DASH (.mpd) manifests so ALL nested HTTP playlists, AES keys, init maps,
- *    and .ts/.m4s media segments tunnel cleanly over HTTPS `/api/relay`.
+ *    and .ts/.m4s media segments tunnel cleanly over HTTPS `/api/relay` WHILE preserving sticky
+ *    User-Agent (`&ua=`), session cookies (`&ck=`), and Stalker MAC headers across 302 Load Balancers!
  */
 const PRIVATE_V4 = [
   /^10\./, /^127\./, /^0\./, /^169\.254\./, /^192\.168\./,
@@ -41,22 +42,38 @@ export function blockedHost(rawUrl) {
   return null;
 }
 
-export function relayLink(absUrl, base = '', ref = '', seg = false) {
+export function relayLink(absUrl, base = '', ref = '', seg = false, extraQuery = '') {
   const refSuffix = ref ? `&ref=${encodeURIComponent(ref)}` : '';
   const segSuffix = seg ? '&seg=1' : '';
-  return `${base}/api/relay?u=${encodeURIComponent(absUrl)}${refSuffix}${segSuffix}`;
+  const extra = extraQuery ? (extraQuery.startsWith('&') ? extraQuery : `&${extraQuery}`) : '';
+  return `${base}/api/relay?u=${encodeURIComponent(absUrl)}${refSuffix}${segSuffix}${extra}`;
 }
 
 function isBinarySegmentUrl(absUrl) {
   try {
-    return BINARY_SEG_EXT.test(new URL(absUrl).pathname);
+    const u = new URL(absUrl);
+    if (BINARY_SEG_EXT.test(u.pathname)) return true;
+    return /[?&](extension|output|format)=(ts|mpegts|mp4|m4s)\b/i.test(u.search);
   } catch {
     return BINARY_SEG_EXT.test(String(absUrl).split('?')[0]);
   }
 }
 
+/** Returns true if an HLS manifest actually contains at least one playable segment or child playlist URI. */
+export function hasPlayableHlsEntries(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) continue;
+    if (!t.startsWith('#')) return true;
+    if (/^#EXT-X-(STREAM-INF|MEDIA|MAP|PART)\b/i.test(t) && /URI=/i.test(t)) return true;
+    if (/^#EXT-X-STREAM-INF\b/i.test(t)) return true;
+  }
+  return false;
+}
+
 /** Rewrites every segment, AES key, init map, and nested variant playlist inside an HLS manifest through `/api/relay`. */
-export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
+export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '', extraQuery = '') {
   return String(text || '')
     .replace(/\r\n/g, '\n')
     .split('\n')
@@ -68,7 +85,7 @@ export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
         return trimmed.replace(/URI=(["'])([^"']+)\1/gi, (full, quote, uri) => {
           try {
             const abs = new URL(uri, manifestUrl).toString();
-            return `URI=${quote}${relayLink(abs, base, ref, isBinaryTag || isBinarySegmentUrl(abs))}${quote}`;
+            return `URI=${quote}${relayLink(abs, base, ref, isBinaryTag || isBinarySegmentUrl(abs), extraQuery)}${quote}`;
           } catch {
             return full;
           }
@@ -76,7 +93,7 @@ export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
       }
       try {
         const abs = new URL(trimmed, manifestUrl).toString();
-        return relayLink(abs, base, ref, isBinarySegmentUrl(abs));
+        return relayLink(abs, base, ref, isBinarySegmentUrl(abs), extraQuery);
       } catch {
         return line;
       }
@@ -88,8 +105,9 @@ export function rewriteHlsManifest(text, manifestUrl, base = '', ref = '') {
  * DASH MPD rewrite: routes BaseURL and SegmentTemplate media/initialization URLs through `/api/relay`
  * while keeping `$Number$` / `$RepresentationID$` tokens intact for Shaka substitution.
  */
-export function rewriteDashMpd(text, mpdUrl, base = '', ref = '') {
+export function rewriteDashMpd(text, mpdUrl, base = '', ref = '', extraQuery = '') {
   const refSuffix = ref ? `&ref=${encodeURIComponent(ref)}` : '';
+  const extra = extraQuery ? (extraQuery.startsWith('&') ? extraQuery : `&${extraQuery}`) : '';
   const shield = (s) => {
     const tokens = [];
     const safe = String(s).replace(/\$([A-Za-z0-9_%]+)\$/g, (_, inner) => { tokens.push(inner); return `__DT${tokens.length - 1}__`; });
@@ -102,13 +120,13 @@ export function rewriteDashMpd(text, mpdUrl, base = '', ref = '') {
       let enc = encodeURIComponent(safe);
       tokens.forEach((inner, i) => { enc = enc.replace(new RegExp(`__DT${i}__`, 'g'), `$${inner}$`); });
       const baseTok = encodeURIComponent(mpdUrl);
-      return `${base}/api/relay?seg=1&u=${baseTok}&tpl=${enc}${refSuffix}`;
+      return `${base}/api/relay?seg=1&u=${baseTok}&tpl=${enc}${refSuffix}${extra}`;
     }
-    try { return `${relayLink(new URL(rawUri, mpdUrl).toString(), base, ref, true)}`; } catch { return rawUri; }
+    try { return `${relayLink(new URL(rawUri, mpdUrl).toString(), base, ref, true, extraQuery)}`; } catch { return rawUri; }
   };
   let out = String(text || '');
   out = out.replace(/(<BaseURL>)([^<]+)(<\/BaseURL>)/gi, (_, a, uri, c) => {
-    try { return `${a}${relayLink(new URL(uri.trim(), mpdUrl).toString(), base, ref)}${c}`; } catch { return _; }
+    try { return `${a}${relayLink(new URL(uri.trim(), mpdUrl).toString(), base, ref, false, extraQuery)}${c}`; } catch { return _; }
   });
   out = out.replace(/(\bmedia=")([^"]+)(")/gi, (_, a, uri, c) => `${a}${segLink(uri)}${c}`);
   out = out.replace(/(\binitialization=")([^"]+)(")/gi, (_, a, uri, c) => `${a}${segLink(uri)}${c}`);

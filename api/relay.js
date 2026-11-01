@@ -1,44 +1,57 @@
-import { blockedHost, rewriteDashMpd, rewriteHlsManifest } from './_relay-lib.js';
+import { blockedHost, hasPlayableHlsEntries, rewriteDashMpd, rewriteHlsManifest } from './_relay-lib.js';
 
 /**
- * SIRAVEX Universal HTTP+HTTPS Streaming Bridge (`/api/relay?u=<url>`)
+ * SIRAVEX OmniStream Universal IPTV Bridge (`/api/relay?u=<url>`)
  * Runs on Vercel EDGE Runtime (`runtime: 'edge'`) + Vite local dev middleware:
- *  - Bridges ANY `http://` or CORS-restricted `https://` stream (HLS `.m3u8`, Live `.ts`,
- *    extensionless Xtream `/user/pass/id`, DASH `.mpd`, FLV, MP4/MKV VOD, M3U/XMLTV, & HTTP logos)
- *    cleanly over HTTPS with ZERO Mixed-Content errors!
- *  - Unlimited streaming response size (eliminates Vercel Node's 4.5 MB cap & 10s kill!).
- *  - Smart Dual User-Agent negotiation: automatically retries once with IPTV Player UA <-> Chrome UA
- *    if an Xtream panel blocks browser UAs or Cloudflare WAF blocks VLC UAs!
- *  - 80ms First-Chunk Sniffing (`expect=hls`): instantly detects raw `0x47` MPEG-TS streams.
+ *  - Bridges ALL `http://` and `https://` IPTV services cleanly over HTTPS:
+ *      * Xtream Codes / XUI.one (`player_api.php`, `get.php`, `xmltv.php`, `/live/`, `/movie/`, `/series/`, Load-Balancer `302`s)
+ *      * Stalker / Ministra / MAG Portals (`portal.php`, `server/load.php` with `Cookie: mac=...` + `X-User-Agent: Model: MAG250` + `Bearer` token)
+ *      * SIPTV / M3U / M3U_PLUS / DASH `.mpd` / HLS `.m3u8` / Continuous MPEG-TS `.ts` / FLV / MP4 / MKV / HTTP Logos
+ *  - Sticky User-Agent + Session Cookie Continuity: child `.ts`/`.m4s` segments inherit the EXACT User-Agent (`&ua=`)
+ *    and session cookie (`&ck=`) that generated the parent `.m3u8` token — eliminating XUI Load-Balancer `403` errors!
  */
 export const config = {
   runtime: 'edge',
 };
 
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
-const CONNECT_TIMEOUT_MS = 9500;
+const STREAM_TIMEOUT_MS = 12000;
+const API_RAW_TIMEOUT_MS = 25000;
 
-const CHROME_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-const IPTV_UA = 'IPTVSmartersPlayer/4.0 (VLC/3.0.20 LibVLC/3.0.20)';
+const UA_PROFILES = {
+  vlc: 'VLC/3.0.20 LibVLC/3.0.20',
+  iptv: 'IPTVSmartersPro/4.0 (Linux; Android 13)',
+  chrome:
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  mag: 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
+  lavf: 'Lavf/60.16.100',
+};
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Range, Accept, Content-Type',
   'Access-Control-Expose-Headers':
-    'Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Siravex-Detected',
+    'Content-Length, Content-Range, Content-Type, Accept-Ranges, X-Siravex-Detected, X-Siravex-UA',
 };
 
 function looksLikeIptvPanel(rawUrl) {
-  return /:(8080|8880|25461|2095|2082|2086|2052|5789)\b|\/(live|movie|series|player_api\.php|get\.php|xmltv\.php)\b/i.test(
+  return /:(8080|8880|25461|2095|2082|2086|2052|5789|8000|8081|8443|25462|25463)\b|\/(live|movie|series|hlsr?|play|streaming|stalker_portal|player_api\.php|get\.php|xmltv\.php|portal\.php|load\.php)\b/i.test(
     rawUrl,
   );
 }
 
+function isXtreamHlsPath(rawUrl) {
+  try {
+    const p = new URL(rawUrl).pathname.toLowerCase();
+    return /^\/(live\/)?[^/]+\/[^/]+\/\d+\.m3u8$/.test(p);
+  } catch {
+    return false;
+  }
+}
+
 function sniffManifestKind(firstChunk) {
   if (!firstChunk || firstChunk.byteLength === 0) return 'none';
-  // MPEG-TS packets start with 0x47 sync byte (repeating every 188 bytes)
   if (firstChunk[0] === 0x47 && (firstChunk.byteLength < 189 || firstChunk[188] === 0x47)) {
     return 'mpegts';
   }
@@ -49,6 +62,20 @@ function sniffManifestKind(firstChunk) {
   if (head.startsWith('#EXTM3U')) return 'hls';
   if (/^(<\?xml[\s\S]*?<MPD|<MPD\b)/i.test(head)) return 'dash';
   return 'binary';
+}
+
+function extractSessionCookie(resHeaders) {
+  try {
+    const raw =
+      (typeof resHeaders.getSetCookie === 'function' ? resHeaders.getSetCookie()[0] : '') ||
+      resHeaders.get('set-cookie') ||
+      '';
+    if (!raw) return '';
+    const pair = raw.split(';')[0].trim();
+    return pair.length > 0 && pair.length <= 240 ? pair : '';
+  } catch {
+    return '';
+  }
 }
 
 function concatUint8(chunks, total) {
@@ -119,16 +146,26 @@ function buildStreamBody(reader, firstChunk, reqSignal) {
   });
 }
 
-async function fetchWithUa(target, method, ua, ref, rangeHeader) {
+async function fetchSingle(target, method, uaString, opts) {
   const headers = new Headers({
-    'User-Agent': ua,
+    'User-Agent': uaString,
     Accept: '*/*',
   });
-  if (ref && /^https?:\/\//i.test(ref)) headers.set('Referer', ref);
-  if (rangeHeader) headers.set('Range', rangeHeader);
+  if (opts.ref && /^https?:\/\//i.test(opts.ref)) headers.set('Referer', opts.ref);
+  if (opts.rangeHeader) headers.set('Range', opts.rangeHeader);
+  if (opts.stoken) headers.set('Authorization', `Bearer ${opts.stoken}`);
+
+  // Stalker / MAG STB Cookie + X-User-Agent + upstream session cookie support
+  const cookieParts = [];
+  if (opts.mac) {
+    cookieParts.push(`mac=${encodeURIComponent(opts.mac)}`, 'stb_lang=en', 'timezone=UTC');
+    headers.set('X-User-Agent', 'Model: MAG250; Link: WiFi');
+  }
+  if (opts.ck) cookieParts.push(opts.ck);
+  if (cookieParts.length > 0) headers.set('Cookie', cookieParts.join('; '));
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), CONNECT_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs);
   try {
     const res = await fetch(target, {
       method,
@@ -145,26 +182,49 @@ async function fetchWithUa(target, method, ua, ref, rangeHeader) {
 }
 
 /**
- * Dual-UA smart fetch:
- * - Xtream/IPTV ports try IPTVSmarters/VLC UA first (bypasses browser-UA blocks on XUI panels);
- *   if rejected with 401/403/458/503 (e.g. Cloudflare WAF), immediately retries with Chrome UA!
- * - Standard CDN URLs try Chrome UA first, and retry with IPTVSmarters/VLC UA on 401/403/458!
+ * Multi-UA Smart Negotiation:
+ * - If explicit `&ua=vlc|iptv|chrome|mag|lavf` or custom `&uac=...` was locked from parent manifest,
+ *   uses that EXACT User-Agent first so Load-Balancer `(IP + UA)` tokens NEVER break on segments!
+ * - Otherwise negotiates across VLC -> Chrome -> IPTVSmarters when a panel/WAF returns 400/401/403/451/458/503!
  */
-async function fetchUpstreamSmart(target, method, ref, rangeHeader) {
-  const iptvFirst = looksLikeIptvPanel(target);
-  const primaryUa = iptvFirst ? IPTV_UA : CHROME_UA;
-  const secondaryUa = iptvFirst ? CHROME_UA : IPTV_UA;
+async function fetchUpstreamSmart(target, method, opts) {
+  if (opts.customUa) {
+    const res = await fetchSingle(target, method, opts.customUa, opts);
+    return { res, uaKey: '', customUa: opts.customUa };
+  }
+  if (opts.mac && !opts.lockedUa) {
+    opts.lockedUa = 'mag';
+  }
+  if (opts.lockedUa && UA_PROFILES[opts.lockedUa]) {
+    const first = await fetchSingle(target, method, UA_PROFILES[opts.lockedUa], opts);
+    if (first.ok || first.status === 206 || opts.isSeg || ![400, 401, 403, 458, 503].includes(first.status)) {
+      return { res: first, uaKey: opts.lockedUa, customUa: '' };
+    }
+    try { await first.body?.cancel(); } catch { /* ignore */ }
+  }
 
-  const first = await fetchWithUa(target, method, primaryUa, ref, rangeHeader);
-  if (first.ok || first.status === 206 || ![400, 401, 403, 458, 503].includes(first.status)) {
-    return first;
+  const iptvFirst = looksLikeIptvPanel(target);
+  const ladder = iptvFirst ? ['vlc', 'chrome', 'iptv'] : ['chrome', 'vlc'];
+  let lastRes = null;
+  let lastKey = ladder[0];
+
+  for (let i = 0; i < ladder.length; i++) {
+    const key = ladder[i];
+    try {
+      const res = await fetchSingle(target, method, UA_PROFILES[key], opts);
+      lastRes = res;
+      lastKey = key;
+      if (res.ok || res.status === 206 || ![400, 401, 403, 451, 458, 503].includes(res.status)) {
+        return { res, uaKey: key, customUa: '' };
+      }
+      if (i < ladder.length - 1) {
+        try { await res.body?.cancel(); } catch { /* ignore */ }
+      }
+    } catch (err) {
+      if (i === ladder.length - 1 && !lastRes) throw err;
+    }
   }
-  try { await first.body?.cancel(); } catch { /* ignore */ }
-  try {
-    return await fetchWithUa(target, method, secondaryUa, ref, rangeHeader);
-  } catch {
-    return first;
-  }
+  return { res: lastRes, uaKey: lastKey, customUa: '' };
 }
 
 function textResponse(status, bodyText, extraHeaders = {}) {
@@ -188,6 +248,13 @@ export default async function handler(req) {
   const tpl = q.get('tpl');
   const ref = String(q.get('ref') || '').trim();
   const expectFmt = String(q.get('expect') || '').trim().toLowerCase();
+  const lockedUa = String(q.get('ua') || '').trim().toLowerCase();
+  const customUa = String(q.get('uac') || '').trim().slice(0, 220);
+  const mac = String(q.get('mac') || '').trim().slice(0, 32);
+  const stoken = String(q.get('stoken') || '').trim().slice(0, 512);
+  const incomingCk = String(q.get('ck') || '').trim().slice(0, 240);
+  const isRaw = q.get('raw') === '1';
+  const isSeg = q.get('seg') === '1' || isRaw;
 
   if (tpl && target) {
     try {
@@ -203,11 +270,28 @@ export default async function handler(req) {
 
   const rangeHeader = req.headers.get('range') || '';
   let upstream;
+  let wonUaKey = '';
+  let wonCustomUa = '';
   try {
-    upstream = await fetchUpstreamSmart(target, req.method, ref, rangeHeader);
+    const out = await fetchUpstreamSmart(target, req.method, {
+      ref,
+      rangeHeader,
+      lockedUa,
+      customUa,
+      mac,
+      stoken,
+      ck: incomingCk,
+      isSeg,
+      timeoutMs: isRaw ? API_RAW_TIMEOUT_MS : STREAM_TIMEOUT_MS,
+    });
+    upstream = out.res;
+    wonUaKey = out.uaKey;
+    wonCustomUa = out.customUa;
   } catch {
     return textResponse(502, 'upstream unreachable');
   }
+
+  if (!upstream) return textResponse(502, 'upstream unreachable');
 
   const finalUrl = upstream.url || target;
   const finalBlock = blockedHost(finalUrl);
@@ -215,8 +299,16 @@ export default async function handler(req) {
     try { await upstream.body?.cancel(); } catch { /* ignore */ }
     return textResponse(403, `blocked redirect: ${finalBlock}`);
   }
+
+  // If HLS probe hits a `ts`-only Xtream panel where `.m3u8` returns 404/405/415/500, signal `mpegts` immediately!
   if (!upstream.ok && upstream.status !== 206) {
     try { await upstream.body?.cancel(); } catch { /* ignore */ }
+    if (expectFmt === 'hls' && isXtreamHlsPath(target) && [400, 404, 405, 406, 415, 500, 501, 502].includes(upstream.status)) {
+      return textResponse(415, `xtream hls unavailable (${upstream.status})`, {
+        'X-Siravex-Detected': 'mpegts',
+        'Cache-Control': 'no-store',
+      });
+    }
     return textResponse(upstream.status || 502, `upstream ${upstream.status}`);
   }
 
@@ -228,11 +320,12 @@ export default async function handler(req) {
   }
 
   if (!upstream.body) {
+    if (expectFmt === 'hls' && isXtreamHlsPath(target)) {
+      return textResponse(415, 'empty hls response', { 'X-Siravex-Detected': 'mpegts', 'Cache-Control': 'no-store' });
+    }
     return new Response(null, { status: upstream.status, headers: CORS_HEADERS });
   }
 
-  const isRaw = q.get('raw') === '1';
-  const isSeg = q.get('seg') === '1' || isRaw;
   const reader = upstream.body.getReader();
 
   const buildPassthroughHeaders = (overrideType, cacheHeader) => {
@@ -242,6 +335,7 @@ export default async function handler(req) {
       'Cache-Control': cacheHeader,
       'X-Accel-Buffering': 'no',
     };
+    if (wonUaKey) h['X-Siravex-UA'] = wonUaKey;
     const len = upstream.headers.get('content-length');
     if (len) h['Content-Length'] = len;
     const cr = upstream.headers.get('content-range');
@@ -251,7 +345,7 @@ export default async function handler(req) {
     return h;
   };
 
-  // Fast-path for media segments (.ts, .m4s, .mp4, .mkv), HTTP logos, & raw M3U/JSON API calls
+  // Fast-path for media segments (.ts, .m4s, .mp4, .mkv), HTTP logos, & raw M3U/JSON/Stalker API calls
   if (isSeg) {
     return new Response(buildStreamBody(reader, null, req.signal), {
       status: upstream.status,
@@ -275,6 +369,12 @@ export default async function handler(req) {
   }
 
   if (!firstChunk) {
+    if (expectFmt === 'hls') {
+      return textResponse(415, 'empty stream on hls probe', {
+        'X-Siravex-Detected': 'mpegts',
+        'Cache-Control': 'no-store',
+      });
+    }
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
@@ -294,18 +394,35 @@ export default async function handler(req) {
     });
   }
 
+  // Build sticky session query params (`&ua=...&ck=...&mac=...`) so EVERY child segment matches the parent token!
+  const stickyParts = [];
+  if (wonCustomUa) stickyParts.push(`uac=${encodeURIComponent(wonCustomUa)}`);
+  else if (wonUaKey) stickyParts.push(`ua=${encodeURIComponent(wonUaKey)}`);
+  if (mac) stickyParts.push(`mac=${encodeURIComponent(mac)}`);
+  if (stoken) stickyParts.push(`stoken=${encodeURIComponent(stoken)}`);
+  const setCk = extractSessionCookie(upstream.headers) || incomingCk;
+  if (setCk) stickyParts.push(`ck=${encodeURIComponent(setCk)}`);
+  const stickyQuery = stickyParts.join('&');
+
   if (looksHls || looksDash) {
     const allBytes = await readAllBounded(reader, firstChunk, MAX_MANIFEST_BYTES);
     if (!allBytes) return textResponse(413, 'manifest too large');
     const text = new TextDecoder('utf-8').decode(allBytes);
     if (text.includes('#EXTM3U') || looksHls) {
-      return textResponse(200, rewriteHlsManifest(text, finalUrl, '', ref), {
+      // If an Xtream panel returned a dead/empty `#EXTM3U` with zero segments, switch immediately to `.ts`!
+      if (expectFmt === 'hls' && !hasPlayableHlsEntries(text)) {
+        return textResponse(415, 'empty hls manifest', {
+          'X-Siravex-Detected': 'mpegts',
+          'Cache-Control': 'no-store',
+        });
+      }
+      return textResponse(200, rewriteHlsManifest(text, finalUrl, '', ref, stickyQuery), {
         'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
         'Cache-Control': 'no-store',
       });
     }
     if (text.includes('<MPD') || looksDash) {
-      return textResponse(200, rewriteDashMpd(text, finalUrl, '', ref), {
+      return textResponse(200, rewriteDashMpd(text, finalUrl, '', ref, stickyQuery), {
         'Content-Type': 'application/dash+xml; charset=utf-8',
         'Cache-Control': 'no-store',
       });

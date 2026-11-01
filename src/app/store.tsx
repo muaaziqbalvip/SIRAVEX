@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS } from '@/types/models';
 import { parseM3U, buildDemoPlaylistText } from '@/services/playlist/m3u';
 import { parseXmltv } from '@/services/epg/xmltv';
 import { connectXtream, fetchSeriesEpisodes, fetchShortEpg, fetchXtreamEpg, type XtreamCreds } from '@/services/xtream/xtream';
+import { connectStalker, type StalkerCreds } from '@/services/stalker/stalker';
 import * as db from '@/services/storage/db';
 import { downloadJson, redactUrl, sanitizeUrl, validatePlaylistFile } from '@/lib/security';
 import { applyFavouriteOrder, nextSortOrder, sortFavourites } from '@/lib/favourites-order';
@@ -68,15 +69,17 @@ interface Store {
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
   previewFile: (file: File, name: string) => Promise<ImportPreview>;
+  previewText: (rawText: string, name: string) => Promise<ImportPreview>;
   commitImport: (
     name: string,
     parsed: ImportPreview,
     type: PlaylistSource['type'],
-    opts?: { url?: string; server?: string; username?: string; password?: string; remember?: boolean },
+    opts?: { url?: string; server?: string; username?: string; mac?: string; password?: string; remember?: boolean },
   ) => Promise<void>;
   importDemo: () => Promise<void>;
   importUrl: (name: string, url: string) => Promise<ImportPreview>;
   importXtream: (name: string, creds: XtreamCreds) => Promise<ImportPreview>;
+  importStalker: (name: string, creds: StalkerCreds) => Promise<ImportPreview>;
   refreshXtreamEpg: (playlistId: string, password?: string) => Promise<number>;
   loadSeriesEpisodes: (item: MediaItem, password?: string) => Promise<number>;
   loadShortEpg: (item: MediaItem, password?: string) => Promise<number>;
@@ -144,25 +147,32 @@ async function fetchRemoteM3uText(clean: string): Promise<string> {
   let lastErr: unknown = null;
   for (const candidate of attempts) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 22000);
+    const timer = setTimeout(() => ctrl.abort(), 28000);
     try {
       const res = await fetch(candidate, { signal: ctrl.signal });
-      if (!res.ok) throw new Error(`Server returned HTTP ${res.status}.`);
+      if (!res.ok) {
+        if (candidate !== relayUrl && attempts.length > 1) {
+          lastErr = new Error(`Server returned HTTP ${res.status}.`);
+          continue;
+        }
+        throw new Error(`Server returned HTTP ${res.status}.`);
+      }
       const buf = await res.arrayBuffer();
-      if (buf.byteLength > 15 * 1024 * 1024) throw new Error('Playlist response exceeds the 15 MB safety limit.');
+      if (buf.byteLength > 35 * 1024 * 1024) throw new Error('Playlist response exceeds the 35 MB safety limit.');
       text = new TextDecoder().decode(buf);
       break;
     } catch (e) {
       lastErr = e;
-      if (e instanceof Error && /exceeds the 15 MB|HTTP (401|403|404)/.test(e.message)) break;
+      if (e instanceof Error && /exceeds the 35 MB/.test(e.message)) break;
+      if (candidate === relayUrl && e instanceof Error && /HTTP (401|403|404)/.test(e.message)) break;
     } finally {
       clearTimeout(timer);
     }
   }
   if (text === null) {
-    if (lastErr instanceof DOMException && lastErr.name === 'AbortError') throw new Error('Request timed out after 22 seconds.');
-    if (lastErr instanceof Error && /exceeds the 15 MB|HTTP \d+/.test(lastErr.message)) throw lastErr;
-    throw new Error('Could not fetch that URL even via relay (commonly provider IP/UA blocking). Download the playlist file from your provider and use local file import instead.');
+    if (lastErr instanceof DOMException && lastErr.name === 'AbortError') throw new Error('Request timed out after 28 seconds.');
+    if (lastErr instanceof Error && /exceeds the 35 MB|HTTP \d+/.test(lastErr.message)) throw lastErr;
+    throw new Error('Could not fetch that URL even via Edge relay. Check the playlist URL or download and import the .m3u file locally.');
   }
   return text;
 }
@@ -358,6 +368,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (res.programmes.length) await persistProgrammes(src.id, res.programmes);
       return res.items.length;
     }
+    if (src.type === 'stalker' && src.server && src.mac) {
+      const res = await connectStalker({ portal: src.server, mac: src.mac });
+      const updated: PlaylistSource = {
+        ...src,
+        server: res.normalizedPortal,
+        mac: res.normalizedMac,
+        itemCount: res.items.length,
+        lastImportedAt: Date.now(),
+        lastError: undefined,
+      };
+      await persistPlaylistItems(updated, res.items);
+      return res.items.length;
+    }
     return 0;
   }, [persistPlaylistItems, persistProgrammes]);
 
@@ -479,11 +502,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const previewText = useCallback(async (rawText: string, name: string): Promise<ImportPreview> => {
+    const trimmed = (rawText || '').trim();
+    if (!trimmed) throw new Error('Paste M3U playlist text or http(s) stream links first.');
+    const normalizedText = trimmed.startsWith('#EXTM3U') ? trimmed : `#EXTM3U\n${trimmed}`;
+    const parsed = parseM3U(normalizedText);
+    return {
+      name: name || 'Pasted IPTV List',
+      items: parsed.items,
+      warnings: parsed.report.warnings,
+      errors: parsed.report.errors,
+      total: parsed.report.total,
+      rawText: normalizedText.length <= MAX_CLOUD_M3U_CHARS ? normalizedText : undefined,
+    };
+  }, []);
+
   const commitImport = useCallback(async (
     name: string,
     parsed: ImportPreview,
     type: PlaylistSource['type'],
-    opts?: { url?: string; server?: string; username?: string; password?: string; remember?: boolean },
+    opts?: { url?: string; server?: string; username?: string; mac?: string; password?: string; remember?: boolean },
   ) => {
     if (parsed.errors.length && parsed.items.length === 0) throw new Error(parsed.errors[0]);
     const playlist: PlaylistSource = {
@@ -493,6 +531,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       url: opts?.url,
       server: opts?.server,
       username: opts?.username,
+      mac: opts?.mac,
       password: opts?.remember ? opts?.password : undefined,
       hasPassword: !!opts?.password,
       rawM3uText: type === 'file' ? parsed.rawText : undefined,
@@ -525,7 +564,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [commitImport, playlists]);
 
   const importUrl = useCallback(async (name: string, url: string): Promise<ImportPreview> => {
-    const clean = sanitizeUrl(url);
+    let raw = (url || '').trim();
+    if (raw && !/^[a-z][a-z0-9+.-]*:/i.test(raw) && (raw.includes('.') || raw.includes(':'))) {
+      raw = `http://${raw}`;
+    }
+    const clean = sanitizeUrl(raw);
     if (!clean) throw new Error('Enter a valid http(s) playlist URL.');
     const text = await fetchRemoteM3uText(clean);
     const parsed = parseM3U(text);
@@ -545,6 +588,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     if (result.programmes.length) pendingEpgRef.current.set(preview.name, result.programmes);
     return preview;
+  }, []);
+
+  const importStalker = useCallback(async (name: string, creds: StalkerCreds): Promise<ImportPreview> => {
+    const result = await connectStalker(creds);
+    return {
+      name: name || 'MAC / Stalker Portal',
+      items: result.items,
+      warnings: result.warnings,
+      errors: result.items.length === 0 ? ['No channels were returned by this MAC portal.'] : [],
+      total: result.items.length,
+      accountNote: result.accountNote,
+    };
   }, []);
 
   const refreshXtreamEpg = useCallback(async (playlistId: string, password?: string): Promise<number> => {
@@ -653,6 +708,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
       throw new Error('Xtream sources without saved password refresh by entering password or reconnecting. Use “Fetch EPG” for guide-only refresh.');
+    }
+    if (p.type === 'stalker') {
+      if (p.server && p.mac) {
+        await hydrateSourceInternal(p);
+        return;
+      }
+      throw new Error('MAC / Stalker source missing portal URL or MAC address.');
     }
     if (p.type === 'file' && p.rawM3uText) {
       await hydrateSourceInternal(p);
@@ -792,7 +854,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Store>(() => ({
     ready, storageError, settings, updateSettings, resetSettings,
     playlists, items, programmes, favourites, progress, diagnostics,
-    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream,
+    toasts, toast, dismissToast, previewFile, previewText, commitImport, importDemo, importUrl, importXtream, importStalker,
     refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg,
     renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, hydrateCloudPlaylist,
     toggleFavourite, reorderFavourites, isFavourite,
@@ -803,7 +865,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }), [
     ready, storageError, settings, updateSettings, resetSettings,
     playlists, items, programmes, favourites, progress, diagnostics,
-    toasts, toast, dismissToast, previewFile, commitImport, importDemo, importUrl, importXtream,
+    toasts, toast, dismissToast, previewFile, previewText, commitImport, importDemo, importUrl, importXtream, importStalker,
     refreshXtreamEpg, loadSeriesEpisodes, loadShortEpg, importEpg,
     renamePlaylist, togglePlaylist, setDefaultPlaylist, deletePlaylist, refreshPlaylist, hydrateCloudPlaylist,
     toggleFavourite, reorderFavourites, isFavourite,

@@ -86,6 +86,11 @@ function MultiViewTile({
       clearKeys: item.drmClearKeys,
       licenseUrl: item.drmLicenseUrl,
       referrer: item.referrer,
+      userAgent: item.userAgent,
+      stalker:
+        item.stalkerPortal && item.stalkerMac && item.stalkerCmd
+          ? { portal: item.stalkerPortal, mac: item.stalkerMac, cmd: item.stalkerCmd, kind: item.stalkerKind }
+          : undefined,
       autoplay: true,
       isLiveHint: true,
       preferredAudioLang: settings.audioLanguage || undefined,

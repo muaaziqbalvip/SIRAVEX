@@ -1,15 +1,24 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  CalendarSync, CheckCircle2, Cloud, Download, FileUp, Link2, LogIn,
+  CalendarSync, CheckCircle2, ClipboardPaste, Cloud, Cpu, Download, FileUp, Link2, LogIn,
   Play, RefreshCw, Server, ShieldCheck, Trash2,
 } from 'lucide-react';
 import { useStore, type ImportPreview } from '@/app/store';
 import { useAuth } from '@/services/firebase/AuthContext';
 import { Button, Card, ConfirmDialog, EmptyState, Input, Select, Switch } from '@/components/ui/ui';
 import { redactUrl } from '@/lib/security';
+import { extractCredsFromUrl, normalizeServer } from '@/services/xtream/xtream';
+import { formatMacInput, normalizeMac, normalizePortalUrl } from '@/services/stalker/stalker';
 
-type Tab = 'file' | 'url' | 'xtream';
+type Tab = 'xtream' | 'stalker' | 'url' | 'paste' | 'file';
+
+function maskMac(mac?: string): string {
+  if (!mac) return '';
+  const parts = mac.split(':');
+  if (parts.length === 6) return `${parts[0]}:${parts[1]}:${parts[2]}:••:••:${parts[5]}`;
+  return mac.slice(0, 8) + '…';
+}
 
 export function PlaylistsPage() {
   const store = useStore();
@@ -19,13 +28,16 @@ export function PlaylistsPage() {
   const [tab, setTab] = useState<Tab>('xtream');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [pastedText, setPastedText] = useState('');
   const [server, setServer] = useState('');
   const [xtUser, setXtUser] = useState('');
   const [pass, setPass] = useState('');
+  const [portal, setPortal] = useState('');
+  const [mac, setMac] = useState('00:1A:79:');
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [pendingType, setPendingType] = useState<Tab>('file');
+  const [pendingType, setPendingType] = useState<PlaylistSourceType>('file');
   const [epgPass, setEpgPass] = useState<Record<string, string>>({});
   const [epgBusy, setEpgBusy] = useState<string | null>(null);
   const [hydrateBusy, setHydrateBusy] = useState<string | null>(null);
@@ -33,10 +45,31 @@ export function PlaylistsPage() {
   const [filter, setFilter] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  type PlaylistSourceType = 'file' | 'url' | 'xtream' | 'stalker';
+
+  const onServerInput = (val: string) => {
+    const extracted = extractCredsFromUrl(val);
+    if (extracted?.server && (extracted.username || extracted.password)) {
+      setServer(extracted.server);
+      if (extracted.username && !xtUser) setXtUser(extracted.username);
+      if (extracted.password && !pass) setPass(extracted.password);
+      toast({ tone: 'info', title: 'Xtream link detected', body: 'Server, username aur password khud fill kar diye gaye.' });
+      return;
+    }
+    setServer(val);
+  };
+
   const onFile = async (f: File) => {
     setBusy(true);
     try { setPreview(await store.previewFile(f, name)); setPendingType('file'); }
     catch (e) { toast({ tone: 'error', title: 'Import failed', body: e instanceof Error ? e.message : 'Invalid file' }); }
+    finally { setBusy(false); }
+  };
+
+  const onPaste = async () => {
+    setBusy(true);
+    try { setPreview(await store.previewText(pastedText, name)); setPendingType('file'); }
+    catch (e) { toast({ tone: 'error', title: 'Paste import failed', body: e instanceof Error ? e.message : 'Invalid M3U text' }); }
     finally { setBusy(false); }
   };
 
@@ -60,6 +93,19 @@ export function PlaylistsPage() {
     }
   };
 
+  const onStalker = async () => {
+    setBusy(true);
+    try {
+      const p = await store.importStalker(name, { portal: portal.trim(), mac: mac.trim() });
+      setPreview(p);
+      setPendingType('stalker');
+    } catch (e) {
+      toast({ tone: 'error', title: 'MAC / Stalker connection failed', body: e instanceof Error ? e.message : 'Connection failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const commit = async () => {
     if (!preview) return;
     setBusy(true);
@@ -69,10 +115,12 @@ export function PlaylistsPage() {
         preview,
         pendingType,
         pendingType === 'url'
-          ? { url }
+          ? { url: url.trim().match(/^https?:\/\//i) ? url.trim() : `http://${url.trim()}` }
           : pendingType === 'xtream'
-            ? { server: server.trim(), username: xtUser.trim(), password: pass, remember }
-            : undefined,
+            ? { server: normalizeServer(server.trim()) || server.trim(), username: xtUser.trim(), password: pass, remember }
+            : pendingType === 'stalker'
+              ? { server: normalizePortalUrl(portal.trim()) || portal.trim(), mac: normalizeMac(mac.trim()) || mac.trim() }
+              : undefined,
       );
       toast({
         tone: 'success',
@@ -106,7 +154,7 @@ export function PlaylistsPage() {
       const count = await store.hydrateCloudPlaylist(playlistId, epgPass[playlistId] || undefined);
       toast({ tone: 'success', title: 'Channels loaded from source', body: `${count.toLocaleString()} items ready.` });
     } catch (e) {
-      toast({ tone: 'error', title: 'Load failed', body: e instanceof Error ? e.message : 'Check password or server' });
+      toast({ tone: 'error', title: 'Load failed', body: e instanceof Error ? e.message : 'Check credentials or server' });
     } finally {
       setHydrateBusy(null);
     }
@@ -118,10 +166,17 @@ export function PlaylistsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-xl font-extrabold sm:text-2xl">Playlists &amp; Firebase Cloud Vault</h1>
-      <p className="mb-4 max-w-3xl text-sm leading-6 text-muted">
-        Apni <strong className="text-silver">Xtream Codes</strong> accounts aur <strong className="text-silver">M3U playlists</strong> add karein. Login hone par aapke sources client-side <strong className="text-cyanx">AES-256 encryption</strong> ke saath aapke private Firebase Cloud Vault mein save hote hain taake mobile, PC aur Smart TV par ek click mein restore ho jayein.
-      </p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-extrabold sm:text-2xl">Universal IPTV Hub &amp; Cloud Vault</h1>
+          <p className="mt-0.5 max-w-3xl text-sm leading-6 text-muted">
+            Har tarah ki <strong className="text-silver">HTTP + HTTPS IPTV Service</strong> support — <strong className="text-cyanx">Xtream Codes</strong>, <strong className="text-cyanx">MAC Address / Stalker Portal (00:1A:79:…)</strong>, <strong className="text-cyanx">SIPTV / M3U_PLUS URL</strong>, Paste List, aur M3U Files.
+          </p>
+        </div>
+        <span className="rounded-full border border-emerald-500/35 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-300">
+          HTTP + HTTPS · XC · MAC · SIPTV · M3U
+        </span>
+      </div>
 
       {/* Firebase Cloud Vault Banner */}
       <Card className="mb-5 border-sky-500/40 bg-gradient-to-r from-[#08152e] via-[#0b1d3d] to-[#081528]">
@@ -185,9 +240,9 @@ export function PlaylistsPage() {
                 <Cloud size={22} aria-hidden />
               </span>
               <div>
-                <p className="text-sm font-extrabold text-white">Save Xtream &amp; M3U Playlists in Firebase Cloud</p>
+                <p className="text-sm font-extrabold text-white">Save Xtream, MAC Portal &amp; M3U in Firebase Cloud</p>
                 <p className="mt-0.5 text-xs leading-5 text-silver/80">
-                  Google ya Email se login karein taake aapki Xtream aur M3U playlists encrypted tor par Firebase mein save hon aur har device par khud load ho jayein.
+                  Google ya Email se login karein taake aapki Xtream, MAC/Stalker aur M3U playlists encrypted tor par Firebase mein save hon aur har device par khud load ho jayein.
                 </p>
               </div>
             </div>
@@ -199,11 +254,13 @@ export function PlaylistsPage() {
       </Card>
 
       <Card className="mb-5">
-        <div className="mb-4 flex gap-1.5 overflow-x-auto" role="tablist" aria-label="Add source">
+        <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Add IPTV source">
           {([
             ['xtream', Server, 'Xtream Codes'],
+            ['stalker', Cpu, 'MAC / Stalker'],
+            ['url', Link2, 'M3U / SIPTV URL'],
+            ['paste', ClipboardPaste, 'Paste M3U'],
             ['file', FileUp, 'M3U File'],
-            ['url', Link2, 'M3U URL'],
           ] as const).map(([t, Icon, label]) => (
             <button
               key={t}
@@ -211,7 +268,7 @@ export function PlaylistsPage() {
               aria-selected={tab === t}
               type="button"
               onClick={() => setTab(t)}
-              className={`inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${
+              className={`inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyanx ${
                 tab === t ? 'bg-sky-500 text-white shadow-glow' : 'border border-border bg-panel'
               }`}
             >
@@ -228,8 +285,14 @@ export function PlaylistsPage() {
         {tab === 'xtream' && (
           <div className="grid gap-3">
             <label className="block text-sm font-medium">
-              Server address
-              <Input value={server} onChange={(e) => setServer(e.target.value)} placeholder="http://provider.example:8080" inputMode="url" className="mt-1" />
+              Server URL (HTTP or HTTPS — ya poora get.php link paste karein)
+              <Input
+                value={server}
+                onChange={(e) => onServerInput(e.target.value)}
+                placeholder="http://provider.example:8080  or  https://panel.example.com"
+                inputMode="url"
+                className="mt-1"
+              />
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm font-medium">
@@ -244,11 +307,80 @@ export function PlaylistsPage() {
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-panel px-3 py-2.5">
               <Switch checked={remember} onChange={setRemember} label="Save password for auto-sync and cloud vault" />
               <span className="min-w-[220px] flex-1 text-xs leading-5 text-muted">
-                <strong className="text-silver">Save credentials (Local + Encrypted Firebase Vault)</strong> — taake EPG refresh, series episodes aur doosre devices par auto-restore baghair dobara password likhe chal sakein.
+                <strong className="text-silver">Save credentials (Local + Encrypted Firebase Vault)</strong> — HTTP `:8080` aur HTTPS dono panels ke Live TV (`.ts` + `.m3u8`), Movies aur Series auto-bridge ke sath chalenge.
               </span>
             </div>
-            <Button onClick={() => void onXtream()} disabled={busy || !server.trim() || !xtUser.trim() || !pass}>
-              {busy ? 'Connecting — Live, Movies, Series aur EPG fetch ho raha hai…' : 'Connect & fetch everything'}
+            <Button onClick={() => void onXtream()} disabled={busy || !server.trim() || (!xtUser.trim() && !server.includes('username='))}>
+              {busy ? 'Connecting HTTP/HTTPS Xtream — fetching Live, Movies & Series…' : 'Connect Xtream (HTTP / HTTPS)'}
+            </Button>
+          </div>
+        )}
+
+        {tab === 'stalker' && (
+          <div className="grid gap-3">
+            <label className="block text-sm font-medium">
+              Portal URL (HTTP or HTTPS — MAG / Stalker / Ministra)
+              <Input
+                value={portal}
+                onChange={(e) => setPortal(e.target.value)}
+                placeholder="http://portal.example:8080/c/  or  http://tv.example/stalker_portal/c/"
+                inputMode="url"
+                className="mt-1"
+              />
+            </label>
+            <label className="block text-sm font-medium">
+              MAC Address (`00:1A:79:…`)
+              <Input
+                value={mac}
+                onChange={(e) => setMac(formatMacInput(e.target.value))}
+                placeholder="00:1A:79:AB:CD:EF"
+                className="mt-1 font-mono uppercase tracking-wider"
+              />
+            </label>
+            <p className="rounded-xl border border-border bg-panel px-3 py-2 text-xs leading-5 text-muted">
+              MAG250 / Stalker / Ministra / XUI MAC portals (`http://` aur `https://`) SIRAVEX Edge STB Bridge ke zariye connect hote hain aur har channel click par fresh <code>create_link</code> stream token banate hain.
+            </p>
+            <Button onClick={() => void onStalker()} disabled={busy || !portal.trim() || !normalizeMac(mac)}>
+              {busy ? 'Handshaking MAC Portal & fetching channels…' : 'Connect MAC / Stalker Portal'}
+            </Button>
+          </div>
+        )}
+
+        {tab === 'url' && (
+          <div>
+            <label className="block text-sm font-medium">
+              M3U / M3U_PLUS / SIPTV URL (HTTP or HTTPS)
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="http://provider.example:8080/get.php?username=…&password=…&type=m3u_plus&output=ts"
+                inputMode="url"
+                className="mt-1"
+              />
+            </label>
+            <Button className="mt-3" onClick={() => void onUrl()} disabled={busy || !url.trim()}>
+              {busy ? 'Fetching via Universal Bridge…' : 'Fetch & preview'}
+            </Button>
+            <p className="mt-2 text-xs leading-5 text-muted">
+              `http://` aur `https://` dono M3U, `get.php` (`output=ts` / `output=m3u8`), SIPTV lists, `#EXTVLCOPT:http-user-agent`, aur `#KODIPROP` ClearKey/Widevine fully supported hain.
+            </p>
+          </div>
+        )}
+
+        {tab === 'paste' && (
+          <div>
+            <label className="block text-sm font-medium">
+              Paste `#EXTM3U` Content or Stream Links (SIPTV / Smart IPTV Style)
+              <textarea
+                value={pastedText}
+                onChange={(e) => setPastedText(e.target.value)}
+                rows={5}
+                placeholder={'#EXTM3U\n#EXTINF:-1 group-title="Sports",PTV Sports HD\nhttp://panel.example:8080/live/user/pass/101.ts'}
+                className="mt-1 w-full rounded-xl border border-border bg-panel p-3 font-mono text-xs text-silver placeholder:text-muted/60 focus:border-sky-400 focus:outline-none"
+              />
+            </label>
+            <Button className="mt-3" onClick={() => void onPaste()} disabled={busy || !pastedText.trim()}>
+              {busy ? 'Parsing…' : 'Parse & preview'}
             </Button>
           </div>
         )}
@@ -267,22 +399,7 @@ export function PlaylistsPage() {
               <FileUp size={18} aria-hidden />{busy ? 'Parsing…' : 'Select M3U / M3U8 file (max 15 MB)'}
             </Button>
             <p className="mt-2 text-xs leading-5 text-muted">
-              File is device par parse hoti hai (`#KODIPROP` ClearKey/Widevine aur `#EXTVLCOPT` samet). 650 KB tak ki M3U files encrypted tor par Firebase Cloud mein bhi sync hoti hain.
-            </p>
-          </div>
-        )}
-
-        {tab === 'url' && (
-          <div>
-            <label className="block text-sm font-medium">
-              M3U URL
-              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://provider.example/playlist.m3u" inputMode="url" className="mt-1" />
-            </label>
-            <Button className="mt-3" onClick={() => void onUrl()} disabled={busy || !url.trim()}>
-              {busy ? 'Fetching…' : 'Fetch & preview'}
-            </Button>
-            <p className="mt-2 text-xs leading-5 text-muted">
-              HTTP aur CORS-blocked links ke liye SIRAVEX guard relay khud fallback karta hai, aur URL aapke Firebase Cloud Vault mein encrypted save rehta hai.
+              File is device par parse hoti hai (`#KODIPROP` ClearKey/Widevine, `#EXTVLCOPT:http-user-agent` aur `http://` + `https://` streams samet). 650 KB tak ki M3U files encrypted tor par Firebase Cloud mein bhi sync hoti hain.
             </p>
           </div>
         )}
@@ -313,7 +430,7 @@ export function PlaylistsPage() {
           {preview.accountNote && <p className="mt-1 text-sm text-emerald-300">{preview.accountNote}</p>}
           <p className="mt-1 text-sm text-muted">
             {preview.items.length.toLocaleString()} item(s) mile
-            {preview.epgCount !== undefined ? ` · EPG programmes: ${preview.epgCount.toLocaleString()}` : ''}. Confirm se pehle kuch save nahi hota.
+            {preview.epgCount !== undefined && preview.epgCount > 0 ? ` · EPG programmes: ${preview.epgCount.toLocaleString()}` : ''}. Confirm se pehle kuch save nahi hota.
           </p>
           <p className="mt-1 text-xs text-muted">
             {(['live', 'movie', 'series'] as const)
@@ -323,7 +440,7 @@ export function PlaylistsPage() {
           {preview.errors.length > 0 && <p className="mt-2 rounded-lg bg-red-950/50 p-3 text-sm text-red-200" role="alert">{preview.errors.join(' ')}</p>}
           {preview.warnings.length > 0 && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-sm font-semibold text-amber-300">{preview.warnings.length} warning(s)</summary>
+              <summary className="cursor-pointer text-sm font-semibold text-amber-300">{preview.warnings.length} note(s)</summary>
               <ul className="mt-2 list-disc pl-5 text-xs leading-5 text-muted">
                 {preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
               </ul>
@@ -362,7 +479,7 @@ export function PlaylistsPage() {
       {playlists.length === 0 ? (
         <EmptyState
           title="No playlists yet"
-          body="Upar se Xtream account connect karein ya M3U file/URL add karein. Login hone par aapke sources khud Firebase Cloud mein bhi mehfooz ho jayenge."
+          body="Upar se Xtream Codes, MAC / Stalker Portal (00:1A:79:…), ya M3U URL/File add karein — HTTP aur HTTPS dono chalenge!"
         />
       ) : (
         <div className="grid gap-3">
@@ -376,6 +493,11 @@ export function PlaylistsPage() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p className="font-bold">{p.name}</p>
                     {p.isDefault && <span className="rounded bg-sky-500/20 px-2 py-0.5 text-xs font-semibold text-sky-300">Default</span>}
+                    {p.type === 'stalker' && (
+                      <span className="rounded bg-violet-500/20 px-2 py-0.5 font-mono text-[11px] font-bold text-violet-300">
+                        MAC {maskMac(p.mac)}
+                      </span>
+                    )}
                     {p.cloudSynced && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
                         <ShieldCheck size={12} aria-hidden />Cloud Saved

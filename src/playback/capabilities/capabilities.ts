@@ -64,9 +64,9 @@ export function formatOf(url: string, forced?: string): StreamFormat {
   if (clean.endsWith('.ts') || clean.endsWith('.m2ts')) return 'mpegts';
   if (clean.endsWith('.flv')) return 'flv';
   if (/\.(mp4|m4v|mov|webm|mkv|ogv|mp3|aac|m4a|ogg|opus|flac|wav)$/.test(clean)) return 'native';
-  if (/[?&](format|type|output|manifest)=(m3u8|hls)\b/.test(search) || /manifest\(format=m3u8/i.test(target)) return 'hls';
-  if (/[?&](format|type|output|manifest)=(mpd|dash)\b/.test(search) || /(^|\/)render(\.|$)/.test(clean) || /\.ism\/manifest/i.test(clean)) return 'dash';
-  if (/[?&](format|type|output)=(ts|mpegts)\b/.test(search)) return 'mpegts';
-  if (/[?&](format|type|output)=flv\b/.test(search)) return 'flv';
+  if (/[?&](format|type|output|manifest|extension)=(m3u8|hls)\b/.test(search) || /manifest\(format=m3u8/i.test(target)) return 'hls';
+  if (/[?&](format|type|output|manifest|extension)=(mpd|dash)\b/.test(search) || /(^|\/)render(\.|$)/.test(clean) || /\.ism\/manifest/i.test(clean)) return 'dash';
+  if (/[?&](format|type|output|extension)=(ts|mpegts)\b/.test(search)) return 'mpegts';
+  if (/[?&](format|type|output|extension)=flv\b/.test(search)) return 'flv';
   return 'unknown';
 }

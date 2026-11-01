@@ -284,6 +284,12 @@ export function PlayerShell({ item, loadOpts }: { item: MediaItem; loadOpts?: Lo
       clearKeys: loadOpts?.clearKeys ?? item.drmClearKeys,
       licenseUrl: loadOpts?.licenseUrl ?? item.drmLicenseUrl,
       referrer: loadOpts?.referrer ?? item.referrer,
+      userAgent: loadOpts?.userAgent ?? item.userAgent,
+      stalker:
+        loadOpts?.stalker ??
+        (item.stalkerPortal && item.stalkerMac && item.stalkerCmd
+          ? { portal: item.stalkerPortal, mac: item.stalkerMac, cmd: item.stalkerCmd, kind: item.stalkerKind }
+          : undefined),
       autoplay: loadOpts?.autoplay ?? settings.autoplay,
       isLiveHint: item.kind === 'live',
       preferredAudioLang: loadOpts?.preferredAudioLang ?? (settings.audioLanguage || undefined),

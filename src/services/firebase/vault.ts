@@ -101,6 +101,7 @@ export interface CloudPlaylistDoc {
   encUrl?: string | null;
   encServer?: string | null;
   encUsername?: string | null;
+  encMac?: string | null;
   encPassword?: string | null;
   encRawM3u?: string | null;
   hasPassword: boolean;
@@ -115,10 +116,11 @@ export interface CloudPlaylistDoc {
 
 export async function serializeCloudPlaylist(p: PlaylistSource, uid: string): Promise<CloudPlaylistDoc> {
   const safeM3u = p.rawM3uText && p.rawM3uText.length <= MAX_CLOUD_M3U_CHARS ? p.rawM3uText : undefined;
-  const [encUrl, encServer, encUsername, encPassword, encRawM3u] = await Promise.all([
+  const [encUrl, encServer, encUsername, encMac, encPassword, encRawM3u] = await Promise.all([
     encryptSecret(p.url, uid),
     encryptSecret(p.server, uid),
     encryptSecret(p.username, uid),
+    encryptSecret(p.mac, uid),
     encryptSecret(p.password, uid),
     encryptSecret(safeM3u, uid),
   ]);
@@ -129,6 +131,7 @@ export async function serializeCloudPlaylist(p: PlaylistSource, uid: string): Pr
     encUrl: encUrl ?? null,
     encServer: encServer ?? null,
     encUsername: encUsername ?? null,
+    encMac: encMac ?? null,
     encPassword: encPassword ?? null,
     encRawM3u: encRawM3u ?? null,
     hasPassword: Boolean(p.password || p.hasPassword),
@@ -143,10 +146,11 @@ export async function serializeCloudPlaylist(p: PlaylistSource, uid: string): Pr
 }
 
 export async function deserializeCloudPlaylist(docData: CloudPlaylistDoc, uid: string): Promise<PlaylistSource> {
-  const [url, server, username, password, rawM3uText] = await Promise.all([
+  const [url, server, username, mac, password, rawM3uText] = await Promise.all([
     decryptSecret(docData.encUrl ?? undefined, uid),
     decryptSecret(docData.encServer ?? undefined, uid),
     decryptSecret(docData.encUsername ?? undefined, uid),
+    decryptSecret(docData.encMac ?? undefined, uid),
     decryptSecret(docData.encPassword ?? undefined, uid),
     decryptSecret(docData.encRawM3u ?? undefined, uid),
   ]);
@@ -157,6 +161,7 @@ export async function deserializeCloudPlaylist(docData: CloudPlaylistDoc, uid: s
     url,
     server,
     username,
+    mac,
     password,
     rawM3uText,
     hasPassword: Boolean(password || docData.hasPassword),

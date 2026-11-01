@@ -1,3 +1,3 @@
-export const APP_VERSION = '4.3.0';
-export const APP_BUILD = 'SIRAVEX-014';
-export const APP_CODENAME = 'Universal Bridge';
+export const APP_VERSION = '4.4.0';
+export const APP_BUILD = 'SIRAVEX-015';
+export const APP_CODENAME = 'OmniStream IPTV';
